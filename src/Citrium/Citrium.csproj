@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>Citrium</RootNamespace>
+    <AssemblyName>Citrium</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Citrium.ico</ApplicationIcon>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <!-- Platform is already in the path (bin\x64\...), so keep one stable output folder per platform. -->
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- Program.cs provides Main (single-instance redirection). -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <Version>0.1.0</Version>
+    <Product>Citrium</Product>
+    <Description>A native WinUI 3 client for Citrix StoreFront / Workspace.</Description>
+
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Viewer/CitrixSessionApi.cs calls Citrix's session API through raw COM vtables. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <EventSourceSupport>false</EventSourceSupport>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <!-- The metapackage (also required transitively by the Community Toolkit) bundles the Windows AI, ML,
+         Search and Widgets stacks: ~50 MB of onnxruntime, DirectML, semantic index… Citrium uses none of
+         them, so exclude their assets from build and publish. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.AI" Version="2.6.5" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.ML" Version="2.6.5" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.Windows.AI.MachineLearning" Version="2.4.89" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Search" Version="2.6.5" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Widgets" Version="2.6.5" ExcludeAssets="all" />
+  </ItemGroup>
+
+  <!--
+    The Windows App SDK copies its localized resources (*.mui) into ~90 language folders.
+    Citrium is English-only, so drop them from build and publish output, except en-US: WinUI needs its
+    default-language resources and fails at startup (0x80040111) without them.
+  -->
+  <Target Name="RemoveLocaleFolders" AfterTargets="Build;Publish">
+    <ItemGroup>
+      <_CitriumLocaleFile Include="$(OutDir)*-*\*.mui" Exclude="$(OutDir)en-US\*.mui" />
+      <_CitriumLocaleFile Include="$(PublishDir)*-*\*.mui" Exclude="$(PublishDir)en-US\*.mui" Condition="'$(PublishDir)' != ''" />
+      <_CitriumLocaleDir Include="@(_CitriumLocaleFile->'%(RootDir)%(Directory)'->Distinct())" />
+    </ItemGroup>
+    <RemoveDir Directories="@(_CitriumLocaleDir)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Citrium.Views.ViewerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Citrium">
+
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TitleBar x:Name="AppTitleBar" Title="Citrium">
+            <TitleBar.IconSource>
+                <FontIconSource Glyph="&#xE7F4;" />
+            </TitleBar.IconSource>
+            <TitleBar.RightHeader>
+                <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Button x:Name="CadButton" Click="CtrlAltDel_Click" Height="32" Padding="10,0" Margin="0,0,4,0"
+                            Background="Transparent" BorderThickness="0"
+                            ToolTipService.ToolTip="Send Ctrl+Alt+Del to the remote desktop" AutomationProperties.Name="Send Ctrl+Alt+Del">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE765;" FontSize="14" />
+                            <TextBlock Text="Ctrl+Alt+Del" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="FullScreenButton" Style="{StaticResource ViewerToolButtonStyle}" Click="FullScreen_Click"
+                            ToolTipService.ToolTip="Full screen" AutomationProperties.Name="Full screen">
+                        <FontIcon Glyph="&#xE740;" FontSize="16" />
+                    </Button>
+                    <Button x:Name="PictureInPictureButton" Style="{StaticResource ViewerToolButtonStyle}" Click="PictureInPicture_Click"
+                            IsEnabled="False" ToolTipService.ToolTip="Picture in picture" AutomationProperties.Name="Picture in picture">
+                        <FontIcon Glyph="&#xE944;" FontSize="16" />
+                    </Button>
+                    <Button x:Name="SendToCitriumButton" Style="{StaticResource ViewerToolButtonStyle}" Click="SendToCitrium_Click"
+                            IsEnabled="False" ToolTipService.ToolTip="Send to Citrium: keeps running. Reopen it from Sessions." AutomationProperties.Name="Send to Citrium">
+                        <FontIcon Glyph="&#xE724;" FontSize="16" />
+                    </Button>
+                    <Button Style="{StaticResource ViewerToolButtonStyle}" Click="Disconnect_Click"
+                            ToolTipService.ToolTip="Disconnect (the desktop keeps running)" AutomationProperties.Name="Disconnect">
+                        <FontIcon Glyph="&#xE7E8;" FontSize="16" />
+                    </Button>
+                    <Border Width="1" Height="20" Margin="6,0" VerticalAlignment="Center"
+                            Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                    <Button Style="{StaticResource ViewerToolButtonStyle}" Click="Settings_Click"
+                            ToolTipService.ToolTip="Settings" AutomationProperties.Name="Settings">
+                        <FontIcon Glyph="&#xE713;" FontSize="16" />
+                    </Button>
+                </StackPanel>
+            </TitleBar.RightHeader>
+        </TitleBar>
+
+        <!-- The Citrix session (a native child window) is positioned exactly over this area. -->
+        <Grid x:Name="SessionArea" Grid.Row="1" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+            <StackPanel x:Name="StatusPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="420">
+                <ProgressRing x:Name="StatusRing" IsActive="True" Width="40" Height="40" />
+                <FontIcon x:Name="StatusIcon" Glyph="&#xE783;" FontSize="40" Visibility="Collapsed"
+                          Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                <TextBlock x:Name="StatusTitle" Text="Connecting…" Style="{StaticResource SubtitleTextBlockStyle}"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                <Button x:Name="StatusClose" Content="Close" HorizontalAlignment="Center" Visibility="Collapsed" Click="StatusClose_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

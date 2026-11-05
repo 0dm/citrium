@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Citrium.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Citrium">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <local:BoolToVisibilityConverter x:Key="InverseBoolToVisibility" Invert="True" />
+
+            <Thickness x:Key="PageHeaderMargin">36,28,36,16</Thickness>
+            <Thickness x:Key="PageContentPadding">36,0,36,36</Thickness>
+            <Thickness x:Key="PageInfoBarMargin">36,12,36,0</Thickness>
+            <x:Double x:Key="SettingsCardSpacing">4</x:Double>
+
+            <Style x:Key="PageTitleTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}" />
+
+            <Style x:Key="ViewerToolButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Width" Value="40" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+            <Style x:Key="SectionHeaderTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+                <Setter Property="Margin" Value="1,30,0,6" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
