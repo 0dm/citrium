@@ -135,7 +135,7 @@ public sealed partial class SettingsPage : Page
         UpdateRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
 
         UpdateAvailableBar.Visibility = update is null || progress != UpdateProgress.None ? Visibility.Collapsed : Visibility.Visible;
-        UpdateActionLink.Content = UpdateService.RunsFromInstall ? "Update now" : "View release";
+        UpdateActionLink.Content = UpdateService.RunsFromInstall ? "Download & install" : "View release";
         UpdateAvailableText.Text = $"Citrium {update} is available.";
     }
 

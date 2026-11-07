@@ -213,15 +213,26 @@ public sealed partial class MainWindow : Window
         if (settings.LastUpdateCheck is { } last && DateTimeOffset.Now - last < UpdateCheckInterval) return;
 
         if (await _state.CheckForUpdatesAsync() is not { } release) return;
-        if (UpdateService.RunsFromInstall && release.Installer is not null) await InstallUpdateAsync();
-        else OfferRelease("A fresher Citrium is ready", $"Version {release.Version} is out. You have {UpdateService.Current}.", InfoBarSeverity.Informational);
+        var message = $"Version {release.Version} is out. You have {UpdateService.Current}.";
+        if (UpdateService.RunsFromInstall)
+        {
+            Alert("A fresher Citrium is ready", message, InfoBarSeverity.Informational, "Open Settings", () => DispatcherQueue.TryEnqueue(() =>
+            {
+                BringToFront();
+                ShowSettings();
+            }));
+        }
+        else OfferRelease("A fresher Citrium is ready", message, InfoBarSeverity.Informational);
     }
 
     private void OfferRelease(string title, string message, InfoBarSeverity severity) =>
         Alert(title, message, severity, "View release",
             () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(UpdateService.LatestReleasePage) { UseShellExecute = true })?.Dispose());
 
-    /// <summary>Downloads the update, then closes Citrium to install it and reopen, as soon as no session would go with it.</summary>
+    /// <summary>
+    /// Only ever from the Download &amp; install link in Settings. Downloads the update, then closes Citrium to install it
+    /// and reopen, as soon as no session would go with it.
+    /// </summary>
     public async Task InstallUpdateAsync()
     {
         if (_state.UpdateProgress != UpdateProgress.None) return;
