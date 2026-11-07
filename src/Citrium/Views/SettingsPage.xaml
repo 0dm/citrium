@@ -5,6 +5,21 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:tk="using:CommunityToolkit.WinUI.Controls">
 
+    <Page.Resources>
+        <LinearGradientBrush x:Key="UpdateBadgeSuccess" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#54B054" Offset="0" />
+            <GradientStop Color="#107C10" Offset="1" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="UpdateBadgeInfo" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#2AA0F2" Offset="0" />
+            <GradientStop Color="#0F6CBD" Offset="1" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="UpdateBadgeCaution" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#E8A317" Offset="0" />
+            <GradientStop Color="#B86E00" Offset="1" />
+        </LinearGradientBrush>
+    </Page.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -15,7 +30,74 @@
 
         <ScrollViewer Grid.Row="1">
             <StackPanel Padding="{StaticResource PageContentPadding}" Spacing="{StaticResource SettingsCardSpacing}">
-                <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderTextBlockStyle}" Margin="1,0,0,6" />
+                <Grid Margin="12,0,0,12" ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid Width="68" Height="64">
+                        <Viewbox Width="60" Height="60" HorizontalAlignment="Left" VerticalAlignment="Top">
+                            <Canvas Width="48" Height="48">
+                                <Path Data="M6.6,22 A17.5,17.5 0 0 1 39,15 M39,6 V15 H30" StrokeThickness="4.5"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                                    <Path.Stroke>
+                                        <LinearGradientBrush StartPoint="0,1" EndPoint="1,0">
+                                            <GradientStop Color="#0F6CBD" Offset="0" />
+                                            <GradientStop Color="#2AA0F2" Offset="1" />
+                                        </LinearGradientBrush>
+                                    </Path.Stroke>
+                                </Path>
+                                <Path Data="M38.9,33 A17.5,17.5 0 0 1 9,33 M9,42 V33 H18" StrokeThickness="4.5"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                                    <Path.Stroke>
+                                        <LinearGradientBrush StartPoint="1,0" EndPoint="0,1">
+                                            <GradientStop Color="#2AA0F2" Offset="0" />
+                                            <GradientStop Color="#0F6CBD" Offset="1" />
+                                        </LinearGradientBrush>
+                                    </Path.Stroke>
+                                </Path>
+                            </Canvas>
+                        </Viewbox>
+                        <Grid x:Name="UpdateBadge" Width="30" Height="30" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                            <Ellipse x:Name="UpdateBadgeFill" />
+                            <FontIcon x:Name="UpdateBadgeIcon" FontSize="15" FontWeight="Bold" Foreground="White" />
+                        </Grid>
+                        <ProgressRing x:Name="UpdateRing" Width="28" Height="28" HorizontalAlignment="Right" VerticalAlignment="Bottom" />
+                    </Grid>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock x:Name="UpdateTitle" Style="{StaticResource BodyStrongTextBlockStyle}" FontSize="16" TextWrapping="WrapWholeWords" />
+                        <TextBlock x:Name="UpdateDetail" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="WrapWholeWords"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="Check for updates" VerticalAlignment="Center"
+                            Style="{StaticResource AccentButtonStyle}" Click="CheckNow_Click" />
+                </Grid>
+                <Grid x:Name="UpdateAvailableBar" Visibility="Collapsed" MinHeight="48" Padding="16,4,4,4" ColumnSpacing="12"
+                      Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                      BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                      BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Glyph="&#xF167;" FontSize="16" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="UpdateAvailableText" Grid.Column="1" Style="{StaticResource BodyStrongTextBlockStyle}"
+                               VerticalAlignment="Center" TextWrapping="WrapWholeWords" />
+                    <HyperlinkButton Grid.Column="2" Content="View release" VerticalAlignment="Center" Click="ViewRelease_Click" />
+                    <Button Grid.Column="3" Style="{StaticResource ViewerToolButtonStyle}" VerticalAlignment="Center"
+                            ToolTipService.ToolTip="Dismiss" AutomationProperties.Name="Dismiss" Click="DismissUpdate_Click">
+                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                </Grid>
+                <tk:SettingsCard Header="Check for updates automatically">
+                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE823;" /></tk:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="UpdatesToggle" Toggled="UpdatesToggle_Toggled" />
+                </tk:SettingsCard>
+
+                <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderTextBlockStyle}" />
                 <tk:SettingsCard Header="App theme" Description="Select which app theme to display.">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE790;" /></tk:SettingsCard.HeaderIcon>
                     <ComboBox x:Name="ThemeBox" MinWidth="200" SelectionChanged="ThemeBox_SelectionChanged">
@@ -107,13 +189,6 @@
                     <tk:SettingsCard.HeaderIcon>
                         <ImageIcon Source="ms-appx:///Assets/Citrium.png" />
                     </tk:SettingsCard.HeaderIcon>
-                </tk:SettingsCard>
-                <tk:SettingsCard Header="Check for updates" Description="Once a day, Citrium asks GitHub for its latest version. It tells you, and never installs anything itself.">
-                    <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE895;" /></tk:SettingsCard.HeaderIcon>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="CheckNowButton" Content="Check now" Click="CheckNow_Click" />
-                        <ToggleSwitch x:Name="UpdatesToggle" Toggled="UpdatesToggle_Toggled" />
-                    </StackPanel>
                 </tk:SettingsCard>
             </StackPanel>
         </ScrollViewer>

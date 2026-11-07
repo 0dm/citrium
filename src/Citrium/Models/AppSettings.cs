@@ -32,5 +32,9 @@ public sealed class AppSettings
 
     public bool CheckForUpdates { get; set; } = true;
 
+    /// <summary>The last time GitHub answered an update check.</summary>
     public DateTimeOffset? LastUpdateCheck { get; set; }
+
+    /// <summary>The newer version that check found, if any. Checks only run once a day, so it has to outlast a restart.</summary>
+    public string? LatestVersion { get; set; }
 }
