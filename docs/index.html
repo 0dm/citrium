@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Citrium: a nicer Citrix desktop for Windows</title>
+  <meta name="description" content="Citrium is a Windows app for Citrix desktops and apps, with picture in picture, live session previews and a full-screen toolbar that stays out of the way.">
+  <link rel="icon" href="icon.png">
+  <style>
+    :root {
+      --bg: #f7f7f5; --text: #1c1d20; --muted: #5f636b; --line: #dfdfda;
+      --accent: #0b64b8; --on-accent: #fff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #16171a; --text: #f1f1ef; --muted: #a4a7ae; --line: #2e3035;
+        --accent: #63b3f5; --on-accent: #0c1a26;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 17px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    a { color: var(--accent); }
+    img { display: block; width: 100%; height: auto; }
+    .wrap { width: min(1120px, 100% - 40px); margin-inline: auto; }
+
+    nav { display: flex; align-items: center; justify-content: space-between; padding-block: 20px; }
+    .brand { display: flex; align-items: center; gap: 10px; color: inherit; font-weight: 600; text-decoration: none; }
+    .brand img { width: 28px; }
+
+    .hero { padding-block: 56px 8px; text-align: center; }
+    h1 {
+      margin: 0 auto 16px; max-width: 14em; font-size: clamp(2.3rem, 6vw, 3.8rem); line-height: 1.08;
+      font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em;
+    }
+    .lead { margin: 0 auto 28px; max-width: 34em; color: var(--muted); font-size: 1.15rem; }
+    .button {
+      display: inline-block; padding: 12px 24px; border-radius: 8px; background: var(--accent); color: var(--on-accent);
+      font-weight: 600; text-decoration: none;
+    }
+    .button:hover { filter: brightness(1.1); }
+    .note { margin: 12px 0 0; color: var(--muted); font-size: 0.9rem; }
+    .shot { margin-top: 28px; }
+
+    section.feature {
+      display: grid; grid-template-columns: 1fr 1.9fr; gap: 40px; align-items: center;
+      padding-block: 40px; border-top: 1px solid var(--line);
+    }
+    h2 { margin: 0 0 8px; font-size: 1.6rem; line-height: 1.2; font-weight: 600; }
+    section p { margin: 0; color: var(--muted); }
+
+    .more { padding-block: 40px; border-top: 1px solid var(--line); }
+    .more ul { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 40px; margin: 16px 0 0; padding: 0; list-style: none; color: var(--muted); }
+
+    .setup { padding-block: 40px; border-top: 1px solid var(--line); }
+    .setup ol { margin: 16px 0 0; padding-left: 22px; color: var(--muted); }
+    .setup li { margin-bottom: 6px; }
+
+    footer { padding-block: 32px 48px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+    footer p { margin: 0 0 6px; }
+
+    @media (max-width: 800px) {
+      section.feature { grid-template-columns: 1fr; gap: 12px; }
+      .more ul { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="./"><img src="icon.png" alt="">Citrium</a>
+      <a href="https://github.com/0dm/citrium">GitHub</a>
+    </nav>
+
+    <header class="hero">
+      <h1>A nicer Citrix desktop for Windows</h1>
+      <p class="lead">Citrium replaces the Citrix Workspace interface. Citrix still handles the connection, so sign-in, policies and HDX work as usual.</p>
+      <a class="button" href="https://github.com/0dm/citrium/releases/latest">Download Citrium</a>
+      <p class="note">Free and open source. Windows 10 (2004 or later) or Windows 11, x64 or ARM64.</p>
+      <div class="shot">
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="screenshots/hero-light.png">
+          <img width="1446" height="979" alt="Citrium's Home page, a mosaic of apps and desktops, with a desktop in a picture-in-picture window on top" src="screenshots/hero-dark.png">
+        </picture>
+      </div>
+    </header>
+
+    <main>
+      <section class="feature">
+        <div>
+          <h2>Picture in picture</h2>
+          <p>Shows a live view of a desktop in a small window on top of everything else. It can open automatically when you switch away. Scroll over it to change its opacity, or turn on ghost mode to click through it.</p>
+        </div>
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="screenshots/pip-light.png">
+          <img loading="lazy" width="1486" height="947" alt="An Engineering Desktop in a small picture-in-picture window, floating over a Design Workstation desktop" src="screenshots/pip-dark.png">
+        </picture>
+      </section>
+
+      <section class="feature">
+        <div>
+          <h2>Sessions</h2>
+          <p>Lists every running session with a live preview, including ones started outside Citrium. If a desktop disconnects, Citrium notifies you and you can reconnect in one click.</p>
+        </div>
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="screenshots/sessions-light.png">
+          <img loading="lazy" width="1336" height="903" alt="The Sessions page, showing live previews of two running desktops" src="screenshots/sessions-dark.png">
+        </picture>
+      </section>
+
+      <section class="feature">
+        <div>
+          <h2>Desktop window</h2>
+          <p>Each desktop remembers its size and position. You can change scaling, audio and other settings from the title bar while connected.</p>
+        </div>
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="screenshots/desktop-light.png">
+          <img loading="lazy" width="1376" height="871" alt="A remote desktop running in a Citrium window" src="screenshots/desktop-dark.png">
+        </picture>
+      </section>
+
+      <section class="feature">
+        <div>
+          <h2>Full screen</h2>
+          <p>The toolbar stays hidden until you rest the pointer at the edge of the screen. You can dock it to any edge or float it, and move the desktop to another screen.</p>
+        </div>
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="screenshots/fullscreen-light.png">
+          <img loading="lazy" width="1456" height="910" alt="A full-screen desktop with Citrium's toolbar along the top" src="screenshots/fullscreen-dark.png">
+        </picture>
+      </section>
+
+      <div class="more">
+        <h2>Also</h2>
+        <ul>
+          <li>Add several accounts and search all of them with Ctrl+E.</li>
+          <li>Pin favorites, and open them from the tray, the taskbar's jump list or a desktop shortcut.</li>
+          <li>Open a desktop automatically when Citrium starts with Windows.</li>
+          <li>Home shows your apps as tiles that shrink and rearrange as you add more.</li>
+        </ul>
+      </div>
+
+      <div class="setup">
+        <h2>Setup</h2>
+        <ol>
+          <li>Download the installer from <a href="https://github.com/0dm/citrium/releases/latest">Releases</a> and run it. It doesn't need administrator rights. Windows may show a warning because the installer isn't code signed yet.</li>
+          <li>In Citrium, open Settings and select Install Citrix Workspace, then restart Citrium. If you don't see the button, it's already installed.</li>
+          <li>Open Accounts and add your Citrix StoreFront store or Citrix Gateway address.</li>
+        </ol>
+      </div>
+    </main>
+
+    <footer>
+      <p>Citrium is an independent project and isn't affiliated with or endorsed by Citrix. Citrix and related names are trademarks of their respective owners.</p>
+      <p>Screenshots show a demo build with a made-up company. <a href="https://github.com/0dm/citrium/blob/main/LICENSE">Apache License 2.0</a>.</p>
+    </footer>
+  </div>
+</body>
+</html>
