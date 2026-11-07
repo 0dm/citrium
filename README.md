@@ -38,7 +38,7 @@ Each desktop remembers its size and position. You can change scaling, audio and 
 
 ## Full screen
 
-The toolbar stays hidden until you rest the pointer at the edge of the screen. You can dock it to any edge or float it, and move the desktop to another screen.
+This toolbar is actually why I built Citrium. Citrix's kept vanishing, and it got annoying. Rest the pointer at the screen edge to bring it up. Dock it to any edge or float it.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/fullscreen-light.png">
