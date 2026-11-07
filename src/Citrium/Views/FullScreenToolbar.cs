@@ -51,6 +51,7 @@ internal sealed class FullScreenToolbar : Window
 
     public event Action? CtrlAltDelRequested;
     public event Action? MinimizeRequested;
+    public event Action? NextScreenRequested;
     public event Action? ExitFullScreenRequested;
     public event Action? PictureInPictureRequested;
     public event Action? SendToCitriumRequested;
@@ -66,7 +67,7 @@ internal sealed class FullScreenToolbar : Window
     public ToolbarDock Dock => _dock;
     private bool IsVertical => _dock is ToolbarDock.Left or ToolbarDock.Right;
 
-    public FullScreenToolbar(string title, bool pinned, ToolbarDock dock, double centerX, double centerY)
+    public FullScreenToolbar(string title, bool pinned, ToolbarDock dock, double centerX, double centerY, bool multipleScreens)
     {
         _pinned = pinned;
         _dock = dock;
@@ -87,6 +88,7 @@ internal sealed class FullScreenToolbar : Window
         AddSeparator();
         AddCommand("", "Minimize", "Minimize", () => MinimizeRequested?.Invoke());
         AddCommand("", "Exit full screen", "Exit full screen", () => ExitFullScreenRequested?.Invoke());
+        if (multipleScreens) AddCommand("\uE7F4", "Next screen", "Move this desktop to your next screen", () => NextScreenRequested?.Invoke());
         AddCommand("\uE944", "Picture in picture", "Picture in picture", () => PictureInPictureRequested?.Invoke());
         AddCommand("\uE724", "Send to Citrium", "Keeps running. Reopen it from Sessions in Citrium.", () => SendToCitriumRequested?.Invoke());
         AddCommand("", "Disconnect", "Disconnect (the desktop keeps running)", () => DisconnectRequested?.Invoke());
@@ -150,7 +152,7 @@ internal sealed class FullScreenToolbar : Window
         presenter.IsMinimizable = false;
         presenter.IsAlwaysOnTop = true;
         AppWindow.SetPresenter(presenter);
-        AppWindow.IsShownInSwitchers = false;
+        WindowHelper.SetShownInSwitchers(this, false);
 
         // Windows keeps every window as wide as a title bar needs, more than twice the vertical bar's width.
         SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), MinimumSizeHook, 1, 0);

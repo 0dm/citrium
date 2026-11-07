@@ -2,8 +2,17 @@ namespace Citrium.Services;
 
 internal static class AppPaths
 {
+#if DEMO
+    /// <summary>Names this copy's data folder and kernel objects, so a demo can run beside the real thing.</summary>
+    public const string InstanceName = "Citrium Demo";
+    public static bool IsDemo => true;
+#else
+    public const string InstanceName = "Citrium";
+    public static bool IsDemo => false;
+#endif
+
     public static string Root { get; } = Ensure(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Citrium"));
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), InstanceName));
 
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string Sessions => Ensure(Path.Combine(Root, "Sessions"));

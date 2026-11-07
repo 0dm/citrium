@@ -44,4 +44,10 @@ public sealed class ViewerSettings
 
     /// <summary>On leaves the microphone to the store and Citrix's policy; off is written as EnableAudioInput.</summary>
     public bool AllowMicrophone { get; set; } = true;
+
+    /// <summary>When a desktop shrinks to picture in picture by itself: "Off", "Minimize" or "SwitchAway".</summary>
+    public string AutoPictureInPicture { get; set; } = "Off";
+
+    /// <summary>How solid the picture-in-picture window is, from 0.3 to 1.</summary>
+    public double PictureInPictureOpacity { get; set; } = 1;
 }

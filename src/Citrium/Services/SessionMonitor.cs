@@ -16,6 +16,17 @@ public sealed partial class HdxSession : INotifyPropertyChanged
     public string? AccountName { get; init; }
     public DateTime Started { get; init; }
     public bool IsDesktop { get; init; }
+
+    /// <summary>The Citrium viewer showing this session, if there is one.</summary>
+    public ViewerInfo? Viewer { get; set; }
+
+    private bool _ended;
+    public bool IsEnded
+    {
+        get => _ended;
+        set { if (_ended == value) return; _ended = value; OnChanged(); OnChanged(nameof(Detail)); }
+    }
+
     public string Glyph => IsDesktop ? "" : "";
 
     private string _title = "";
@@ -31,7 +42,7 @@ public sealed partial class HdxSession : INotifyPropertyChanged
         {
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(AccountName)) parts.Add(AccountName);
-            parts.Add($"Started {Started:t}");
+            parts.Add(IsEnded ? "Disconnected" : $"Started {Started:t}");
             if (!string.IsNullOrEmpty(WindowTitle) && WindowTitle != Name) parts.Add(WindowTitle);
             return string.Join(" · ", parts);
         }
@@ -53,6 +64,9 @@ public sealed class SessionMonitor
 
     public ObservableCollection<HdxSession> Sessions { get; } = [];
 
+    /// <summary>A session in a Citrium viewer ended without anyone asking it to.</summary>
+    public event Action<HdxSession>? Dropped;
+
     public SessionMonitor(DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
@@ -72,7 +86,7 @@ public sealed class SessionMonitor
     public void Poll()
     {
         List<Process> procs;
-        try { procs = [.. Process.GetProcessesByName("wfica32")]; } catch { return; }
+        try { procs = [.. Process.GetProcessesByName(HdxEngine.ProcessName)]; } catch { return; }
 
         // Engines displayed inside a Citrium viewer are listed once, as the viewer — including ones whose
         // window is hidden, and ones that outlived a restart of the main window.
@@ -119,9 +133,16 @@ public sealed class SessionMonitor
                 try { title = p.MainWindowTitle; } catch { }
 
                 var existing = Sessions.FirstOrDefault(s => s.ProcessId == p.Id);
+                var viewer = viewers.FirstOrDefault(v => v.ViewerPid == p.Id);
                 if (existing is not null)
                 {
                     existing.WindowTitle = title;
+                    existing.Viewer = viewer;
+                    if (viewer is { Ended: true } && !existing.IsEnded)
+                    {
+                        existing.IsEnded = true;
+                        Dropped?.Invoke(existing);
+                    }
                     continue;
                 }
 
@@ -137,6 +158,8 @@ public sealed class SessionMonitor
                     IsDesktop = info.Desktop,
                     Started = started,
                     WindowTitle = title,
+                    Viewer = viewer,
+                    IsEnded = viewer?.Ended == true,
                 });
             }
         }
@@ -241,7 +264,7 @@ public sealed class SessionMonitor
         try
         {
             using var p = Process.GetProcessById(pid);
-            if (p.ProcessName.Equals("wfica32", StringComparison.OrdinalIgnoreCase)) p.Kill();
+            if (p.ProcessName.Equals(HdxEngine.ProcessName, StringComparison.OrdinalIgnoreCase)) p.Kill();
         }
         catch { /* already gone */ }
     }

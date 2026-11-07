@@ -3,22 +3,32 @@ using System.Runtime.InteropServices;
 
 namespace Citrium.Services;
 
+/// <summary>A row in the tray menu: a command, a greyed-out heading if it has no action, or a submenu.</summary>
+internal sealed record TrayMenuItem(string Text, Action? Invoke = null, IReadOnlyList<TrayMenuItem>? Children = null);
+
 /// <summary>
 /// Notification-area (system tray) icon for the main window, using Shell_NotifyIcon directly.
-/// Left-click opens Citrium; right-click shows Open / Quit. Survives Explorer restarts (TaskbarCreated).
+/// Left-click opens Citrium; right-click shows what's running, your favorites and Quit. Survives Explorer
+/// restarts (TaskbarCreated).
 /// </summary>
 internal sealed unsafe class TrayIcon : IDisposable
 {
     private const uint CallbackMessage = 0x8000 + 0x42; // WM_APP + n
     private const uint IconId = 1;
-    private const int MenuOpen = 1, MenuQuit = 2;
+    private const int MenuOpen = 1, MenuQuit = 2, MenuFirstDynamic = 100;
 
     private static TrayIcon? _instance; // the subclass proc is static; one tray icon per process
     private static readonly uint TaskbarCreated = RegisterWindowMessageW("TaskbarCreated");
 
     private readonly IntPtr _hwnd;
     private readonly IntPtr _icon;
+    private readonly IntPtr _notificationIcon;
     private bool _added;
+    private string _tip = "Citrium";
+    private Action? _notificationClicked;
+
+    /// <summary>The rows above Open and Quit, built fresh each time the menu opens.</summary>
+    public Func<IReadOnlyList<TrayMenuItem>>? MenuItems { get; set; }
 
     public event Action? OpenRequested;
     public event Action? QuitRequested;
@@ -28,6 +38,9 @@ internal sealed unsafe class TrayIcon : IDisposable
         _hwnd = hwnd;
         _icon = LoadImageW(IntPtr.Zero, iconPath, 1 /* IMAGE_ICON */,
             GetSystemMetrics(49 /* SM_CXSMICON */), GetSystemMetrics(50 /* SM_CYSMICON */), 0x10 /* LR_LOADFROMFILE */);
+        // Its own size: asked for a large icon and handed a small one, Windows refuses the whole notification.
+        _notificationIcon = LoadImageW(IntPtr.Zero, iconPath, 1 /* IMAGE_ICON */,
+            GetSystemMetrics(11 /* SM_CXICON */), GetSystemMetrics(12 /* SM_CYICON */), 0x10 /* LR_LOADFROMFILE */);
         _instance = this;
         SetWindowSubclass(_hwnd, &SubclassProc, 0x7472 /* id */, IntPtr.Zero);
     }
@@ -52,15 +65,25 @@ internal sealed unsafe class TrayIcon : IDisposable
         _added = false;
     }
 
-    public void Notify(string title, string message)
+    public void SetTip(string tip)
+    {
+        _tip = tip;
+        if (!_added) return;
+        var data = NewData(NIF_TIP | NIF_SHOWTIP);
+        Shell_NotifyIconW(NIM_MODIFY, ref data);
+    }
+
+    /// <param name="clicked">Runs if the user clicks the notification. Otherwise a click just opens Citrium.</param>
+    public void Notify(string title, string message, Action? clicked = null)
     {
         if (!_added) return;
+        _notificationClicked = clicked;
         var data = NewData(NIF_INFO);
         data.szInfoTitle = title;
         data.szInfo = message;
         data.dwInfoFlags = 0x4 /* NIIF_USER */ | 0x20 /* NIIF_LARGE_ICON */;
-        data.hBalloonIcon = _icon;
-        Shell_NotifyIconW(NIM_MODIFY, ref data);
+        data.hBalloonIcon = _notificationIcon;
+        if (!Shell_NotifyIconW(NIM_MODIFY, ref data)) Log.Error($"Windows refused the notification \"{title}\"");
     }
 
     private NOTIFYICONDATAW NewData(uint flags) => new()
@@ -71,7 +94,7 @@ internal sealed unsafe class TrayIcon : IDisposable
         uFlags = flags,
         uCallbackMessage = CallbackMessage,
         hIcon = _icon,
-        szTip = "Citrium",
+        szTip = _tip,
         szInfo = "",
         szInfoTitle = "",
     };
@@ -93,6 +116,11 @@ internal sealed unsafe class TrayIcon : IDisposable
                         case 0x0401: // NIN_KEYSELECT
                         case 0x0203: // WM_LBUTTONDBLCLK
                             self.OpenRequested?.Invoke();
+                            break;
+                        case 0x0405: // NIN_BALLOONUSERCLICK
+                            var clicked = self._notificationClicked ?? self.OpenRequested;
+                            self._notificationClicked = null;
+                            clicked?.Invoke();
                             break;
                         case 0x007B: // WM_CONTEXTMENU
                             self.ShowMenu((short)(wParam.ToInt64() & 0xFFFF), (short)((wParam.ToInt64() >> 16) & 0xFFFF));
@@ -118,10 +146,16 @@ internal sealed unsafe class TrayIcon : IDisposable
     private void ShowMenu(int x, int y)
     {
         var menu = CreatePopupMenu();
+        var commands = new List<Action>();
         try
         {
+            if (MenuItems?.Invoke() is { Count: > 0 } items)
+            {
+                Append(menu, items, commands);
+                AppendMenuW(menu, MF_SEPARATOR, 0, null);
+            }
             AppendMenuW(menu, 0, MenuOpen, "Open Citrium");
-            AppendMenuW(menu, 0x800 /* MF_SEPARATOR */, 0, null);
+            AppendMenuW(menu, MF_SEPARATOR, 0, null);
             AppendMenuW(menu, 0, MenuQuit, "Quit");
             SetMenuDefaultItem(menu, MenuOpen, 0);
             // Required so the menu closes when the user clicks elsewhere.
@@ -129,10 +163,35 @@ internal sealed unsafe class TrayIcon : IDisposable
             var cmd = TrackPopupMenuEx(menu, 0x0100 /* TPM_RETURNCMD */ | 0x0002 /* TPM_RIGHTBUTTON */ | 0x0008 /* TPM_BOTTOMALIGN */, x, y, _hwnd, IntPtr.Zero);
             if (cmd == MenuOpen) OpenRequested?.Invoke();
             else if (cmd == MenuQuit) QuitRequested?.Invoke();
+            else if (cmd >= MenuFirstDynamic && cmd - MenuFirstDynamic < commands.Count) commands[cmd - MenuFirstDynamic]();
         }
         finally
         {
             DestroyMenu(menu);
+        }
+    }
+
+    private static void Append(IntPtr menu, IReadOnlyList<TrayMenuItem> items, List<Action> commands)
+    {
+        foreach (var item in items)
+        {
+            var text = item.Text.Replace("&", "&&"); // a lone & would underline the next letter
+            if (item.Children is { Count: > 0 } children)
+            {
+                // Windows destroys a submenu along with the menu that holds it.
+                var submenu = CreatePopupMenu();
+                Append(submenu, children, commands);
+                AppendMenuW(menu, MF_POPUP, (nuint)submenu.ToInt64(), text);
+            }
+            else if (item.Invoke is { } invoke)
+            {
+                commands.Add(invoke);
+                AppendMenuW(menu, 0, (nuint)(MenuFirstDynamic + commands.Count - 1), text);
+            }
+            else
+            {
+                AppendMenuW(menu, MF_GRAYED, 0, text);
+            }
         }
     }
 
@@ -145,9 +204,11 @@ internal sealed unsafe class TrayIcon : IDisposable
         Hide();
         RemoveWindowSubclass(_hwnd, &SubclassProc, 0x7472);
         if (_icon != IntPtr.Zero) DestroyIcon(_icon);
+        if (_notificationIcon != IntPtr.Zero) DestroyIcon(_notificationIcon);
         if (ReferenceEquals(_instance, this)) _instance = null;
     }
 
+    private const uint MF_GRAYED = 0x1, MF_POPUP = 0x10, MF_SEPARATOR = 0x800;
     private const uint NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4;
     private const uint NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
 

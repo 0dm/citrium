@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!--
+    A per-user install: no administrator rights, which suits the managed PCs Citrix tends to live on. It goes in
+    %LocalAppData%\Programs, apart from %LocalAppData%\Citrium, where settings and sign-ins live and survive an upgrade.
+    UpgradeCode must never change: it's how a new version finds the old one to replace.
+  -->
+  <Package Name="Citrium"
+           Manufacturer="Citrium"
+           Version="$(var.Version)"
+           UpgradeCode="6C1F2A54-8E3B-4D07-9A6E-2F4B7D10C3E5"
+           Scope="perUser"
+           Language="1033"
+           Compressed="yes">
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Citrium is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="Citrium.ico" SourceFile="..\src\Citrium\Assets\Citrium.ico" />
+    <Property Id="ARPPRODUCTICON" Value="Citrium.ico" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="A better Windows app for your Citrix desktops and apps." />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Citrium" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <Files Directory="INSTALLFOLDER" Include="$(var.PublishDir)\**" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="Cleanup" />
+    </Feature>
+
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Id="CitriumShortcut" Name="Citrium" Description="Your Citrix desktops and apps"
+                Target="[INSTALLFOLDER]Citrium.exe" WorkingDirectory="INSTALLFOLDER" Icon="Citrium.ico" />
+      <RegistryValue Root="HKCU" Key="Software\Citrium" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!--
+      Citrium registers citrium:// and starting with Windows itself, so nothing else knows to take them away. Those
+      are removed by the actions further down, not here: an upgrade uninstalls the old version too, and shortcuts
+      and jump lists need citrium:// to carry on working through that.
+    -->
+    <Component Id="Cleanup" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\Citrium" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+    </Component>
+
+    <SetProperty Id="RemoveLinkScheme" Sequence="execute" Before="RemoveLinkScheme"
+                 Value="&quot;[SystemFolder]reg.exe&quot; delete HKCU\Software\Classes\citrium /f" />
+    <CustomAction Id="RemoveLinkScheme" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixSilentExec"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <SetProperty Id="RemoveStartup" Sequence="execute" Before="RemoveStartup"
+                 Value="&quot;[SystemFolder]reg.exe&quot; delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Citrium /f" />
+    <CustomAction Id="RemoveStartup" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixSilentExec"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveStartup" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveLinkScheme" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="Assets\License.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="Assets\Banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="Assets\Dialog.bmp" />
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Citrium is ready. You'll find it in the Start menu." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Open Citrium" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[INSTALLFOLDER]Citrium.exe" />
+    <CustomAction Id="OpenCitrium" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="OpenCitrium"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+  </Package>
+</Wix>

@@ -24,4 +24,13 @@ public sealed class AppSettings
     public bool TrayHintShown { get; set; }
 
     public bool RefreshOnStartup { get; set; } = true;
+
+    /// <summary>A link to the resource to open when Citrium starts, if any. See <see cref="Services.CitriumLink"/>.</summary>
+    public string? AutoOpen { get; set; }
+
+    public bool DisconnectOnLock { get; set; }
+
+    public bool CheckForUpdates { get; set; } = true;
+
+    public DateTimeOffset? LastUpdateCheck { get; set; }
 }

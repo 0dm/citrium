@@ -1,0 +1,37 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <!--
+    Builds Citrium-<version>-<platform>.msi, publishing the app first:
+      dotnet build installer/Citrium.Installer.wixproj -c Release -p:Platform=x64
+    Pass -p:PublishDir=<folder> to package an existing publish folder instead.
+  -->
+  <PropertyGroup>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <Platforms>x64;ARM64</Platforms>
+    <OutputName>Citrium-$(Version)-$(Platform)</OutputName>
+    <RuntimeId Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeId>
+    <RuntimeId Condition="'$(RuntimeId)' == ''">win-x64</RuntimeId>
+    <PublishApp Condition="'$(PublishDir)' == ''">true</PublishApp>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\obj\publish\$(Platform)</PublishDir>
+    <DefineConstants>Version=$(Version);PublishDir=$(PublishDir)</DefineConstants>
+
+    <!--
+      38, 64 and 91 check a per-machine install: per-user files have a registry key path instead, which they can't
+      follow. 61 objects to replacing the same version, which is what lets a rebuilt 0.1.0 install over itself.
+    -->
+    <SuppressIces>ICE38;ICE61;ICE64;ICE91</SuppressIces>
+
+    <!-- 1077 objects to a property in WixShellExecTarget, but WixShellExec expands it itself, as WiX's own guide has it. -->
+    <SuppressSpecificWarnings>1077</SuppressSpecificWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <Target Name="PublishCitrium" BeforeTargets="BeforeBuild" Condition="'$(PublishApp)' == 'true'">
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)\..\src\Citrium\Citrium.csproj&quot; -c Release -p:Platform=$(Platform) -r $(RuntimeId) -p:Version=$(Version) -o &quot;$(PublishDir)&quot;" />
+  </Target>
+
+</Project>

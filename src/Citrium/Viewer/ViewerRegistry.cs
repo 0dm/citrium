@@ -4,7 +4,11 @@ using Citrium.Services;
 
 namespace Citrium.Viewer;
 
-public sealed record ViewerInfo(int ViewerPid, int EnginePid, long WindowHandle, string Title, string? Account);
+/// <param name="SessionHandle">The child window showing the session, which is the part worth previewing.</param>
+/// <param name="Ended">The session is over, and the viewer is only waiting to be reconnected or dismissed.</param>
+public sealed record ViewerInfo(
+    int ViewerPid, int EnginePid, long WindowHandle, string Title, string? Account,
+    long SessionHandle = 0, string? AccountId = null, string? ResourceId = null, bool Ended = false, bool WasFullScreen = false);
 
 /// <summary>
 /// How the main window and viewer processes find and talk to each other. Each viewer registers itself in
@@ -13,10 +17,11 @@ public sealed record ViewerInfo(int ViewerPid, int EnginePid, long WindowHandle,
 /// </summary>
 internal static class ViewerRegistry
 {
-    private const string MainMutexName = @"Local\Citrium.Main.Running";
-    private const string DisconnectAllEventName = @"Local\Citrium.Viewers.DisconnectAll";
-    private static string DisconnectEventName(int viewerPid) => $@"Local\Citrium.Viewer.Disconnect.{viewerPid}";
-    private static string ShowEventName(int viewerPid) => $@"Local\Citrium.Viewer.Show.{viewerPid}";
+    private const string MainMutexName = $@"Local\{AppPaths.InstanceName}.Main.Running";
+    private const string DisconnectAllEventName = $@"Local\{AppPaths.InstanceName}.Viewers.DisconnectAll";
+    private static string DisconnectEventName(int viewerPid) => $@"Local\{AppPaths.InstanceName}.Viewer.Disconnect.{viewerPid}";
+    private static string ShowEventName(int viewerPid) => $@"Local\{AppPaths.InstanceName}.Viewer.Show.{viewerPid}";
+    private static string PictureInPictureEventName(int viewerPid) => $@"Local\{AppPaths.InstanceName}.Viewer.PictureInPicture.{viewerPid}";
     private static string FileFor(int viewerPid) => Path.Combine(AppPaths.Viewers, $"{viewerPid}.viewer");
 
     private static Mutex? _mainMutex;
@@ -41,6 +46,12 @@ internal static class ViewerRegistry
         e.Set();
     }
 
+    public static void RequestPictureInPicture(int viewerPid)
+    {
+        using var e = new EventWaitHandle(false, EventResetMode.ManualReset, PictureInPictureEventName(viewerPid));
+        e.Set();
+    }
+
     public static List<ViewerInfo> ReadAll()
     {
         var result = new List<ViewerInfo>();
@@ -53,8 +64,10 @@ internal static class ViewerRegistry
                 var lines = File.ReadAllLines(file);
                 if (lines.Length < 3) continue;
                 if (!int.TryParse(lines[0], out var enginePid) || !long.TryParse(lines[1], out var hwnd)) continue;
-                result.Add(new ViewerInfo(viewerPid, enginePid, hwnd, lines[2],
-                    lines.Length > 3 && lines[3].Length > 0 ? lines[3] : null));
+                string? Text(int i) => lines.Length > i && lines[i].Length > 0 ? lines[i] : null;
+                _ = long.TryParse(Text(4), out var session);
+                result.Add(new ViewerInfo(viewerPid, enginePid, hwnd, lines[2], Text(3),
+                    session, Text(5), Text(6), Text(7) == "ended", Text(8) == "fullscreen"));
             }
         }
         catch (Exception ex) { Log.Error("Couldn't read viewer registrations", ex); }
@@ -94,7 +107,9 @@ internal static class ViewerRegistry
         try
         {
             File.WriteAllLines(FileFor(info.ViewerPid),
-                [info.EnginePid.ToString(), info.WindowHandle.ToString(), info.Title, info.Account ?? ""]);
+                [info.EnginePid.ToString(), info.WindowHandle.ToString(), info.Title, info.Account ?? "",
+                 info.SessionHandle.ToString(), info.AccountId ?? "", info.ResourceId ?? "",
+                 info.Ended ? "ended" : "", info.WasFullScreen ? "fullscreen" : ""]);
         }
         catch (Exception ex) { Log.Error("Couldn't register viewer", ex); }
     }
@@ -104,10 +119,11 @@ internal static class ViewerRegistry
         try { File.Delete(FileFor(viewerPid)); } catch { }
     }
 
-    public static (EventWaitHandle Mine, EventWaitHandle All, EventWaitHandle Show) OpenSignals(int viewerPid) => (
+    public static (EventWaitHandle Mine, EventWaitHandle All, EventWaitHandle Show, EventWaitHandle PictureInPicture) OpenSignals(int viewerPid) => (
         new EventWaitHandle(false, EventResetMode.ManualReset, DisconnectEventName(viewerPid)),
         new EventWaitHandle(false, EventResetMode.ManualReset, DisconnectAllEventName),
-        new EventWaitHandle(false, EventResetMode.ManualReset, ShowEventName(viewerPid)));
+        new EventWaitHandle(false, EventResetMode.ManualReset, ShowEventName(viewerPid)),
+        new EventWaitHandle(false, EventResetMode.ManualReset, PictureInPictureEventName(viewerPid)));
 
     private static bool IsAlive(int pid)
     {

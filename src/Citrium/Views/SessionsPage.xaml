@@ -12,13 +12,13 @@
 
         <TextBlock Text="Sessions" Style="{StaticResource PageTitleTextBlockStyle}" Margin="{StaticResource PageHeaderMargin}" />
 
-        <ScrollViewer Grid.Row="1">
+        <ScrollViewer x:Name="Scroller" Grid.Row="1">
             <StackPanel Padding="{StaticResource PageContentPadding}" Spacing="{StaticResource SettingsCardSpacing}">
                 <StackPanel x:Name="List" Spacing="{StaticResource SettingsCardSpacing}" />
 
                 <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" Spacing="8" Margin="0,96,0,0" MaxWidth="400">
                     <FontIcon Glyph="&#xE8A1;" FontSize="40" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,0,0,8" />
-                    <TextBlock Text="No active sessions" Style="{StaticResource BodyStrongTextBlockStyle}" HorizontalAlignment="Center" />
+                    <TextBlock Text="All quiet" Style="{StaticResource BodyStrongTextBlockStyle}" HorizontalAlignment="Center" />
                     <TextBlock Text="Apps and desktops you open appear here, including ones started from other Citrix launchers."
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center"
                                TextAlignment="Center" TextWrapping="Wrap" />

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Citrium.Tests</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- The app is a WinUI executable, so these compile its UI-free source files directly rather than reference it. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Citrium\Services\AppPaths.cs" Link="Linked\AppPaths.cs" />
+    <Compile Include="..\..\src\Citrium\Services\CitriumLink.cs" Link="Linked\CitriumLink.cs" />
+    <Compile Include="..\..\src\Citrium\Services\StoreUrl.cs" Link="Linked\StoreUrl.cs" />
+    <Compile Include="..\..\src\Citrium\Services\TileLayout.cs" Link="Linked\TileLayout.cs" />
+    <Compile Include="..\..\src\Citrium\Services\UpdateService.cs" Link="Linked\UpdateService.cs" />
+    <Compile Include="..\..\src\Citrium\Services\WindowFit.cs" Link="Linked\WindowFit.cs" />
+    <Compile Include="..\..\src\Citrium\Viewer\IcaFileEditor.cs" Link="Linked\IcaFileEditor.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

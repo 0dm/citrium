@@ -7,6 +7,7 @@ namespace Citrium.Services;
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(AppSettings))]
 [JsonSerializable(typeof(ViewerSettings))]
+[JsonSerializable(typeof(Placements))]
 [JsonSerializable(typeof(List<CookieDto>))]
 internal sealed partial class JsonContext : JsonSerializerContext;
 

@@ -21,6 +21,9 @@
                         <MenuFlyoutItem Text="{x:Bind FavoriteLabel, Mode=OneWay}" Click="Favorite_Click" Tag="{x:Bind}">
                             <MenuFlyoutItem.Icon><FontIcon Glyph="{x:Bind FavoriteGlyph, Mode=OneWay}" /></MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Add desktop shortcut" Click="Shortcut_Click" Tag="{x:Bind}">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE71B;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Properties" Click="Details_Click" Tag="{x:Bind}">
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE946;" /></MenuFlyoutItem.Icon>
@@ -36,6 +39,48 @@
                 <TextBlock Grid.Row="1" Text="{x:Bind Name}" TextAlignment="Center" TextWrapping="WrapWholeWords" MaxLines="2"
                            TextTrimming="CharacterEllipsis" Style="{StaticResource CaptionTextBlockStyle}" />
             </Grid>
+        </DataTemplate>
+
+        <!-- Home's tiles. Sizes come from TileMosaic, so everything in here stretches and shrinks with it. -->
+        <DataTemplate x:Key="MosaicTileTemplate" x:DataType="models:StoreResource">
+            <Button Tag="{x:Bind}" Click="MosaicTile_Click" Padding="12,10,12,10" CornerRadius="8"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                    AutomationProperties.Name="{x:Bind Name}" ToolTipService.ToolTip="{x:Bind Name}">
+                <Button.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Open" Click="Open_Click" Tag="{x:Bind}">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8A7;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="{x:Bind FavoriteLabel, Mode=OneWay}" Click="Favorite_Click" Tag="{x:Bind}">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="{x:Bind FavoriteGlyph, Mode=OneWay}" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Add desktop shortcut" Click="Shortcut_Click" Tag="{x:Bind}">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE71B;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Properties" Click="Details_Click" Tag="{x:Bind}">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE946;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </Button.ContextFlyout>
+
+                <Grid RowSpacing="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Viewbox MaxWidth="112" MaxHeight="112" Margin="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Grid Width="48" Height="48">
+                            <Image Source="{x:Bind Icon, Mode=OneWay}" Stretch="Uniform" />
+                            <FontIcon Glyph="{x:Bind FallbackGlyph}" FontSize="36" Visibility="{x:Bind NoIcon, Mode=OneWay}" />
+                            <ProgressRing IsActive="{x:Bind IsLaunching, Mode=OneWay}" Width="56" Height="56" Margin="-4" />
+                        </Grid>
+                    </Viewbox>
+                    <TextBlock Grid.Row="1" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" MaxLines="1"
+                               Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold" />
+                </Grid>
+            </Button>
         </DataTemplate>
 
         <Style x:Key="TileGrid" TargetType="GridView">
@@ -75,7 +120,7 @@
             </CommandBar>
         </Grid>
 
-        <ScrollViewer Grid.Row="1">
+        <ScrollViewer x:Name="Scroller" Grid.Row="1">
             <StackPanel Padding="{StaticResource PageContentPadding}">
                 <InfoBar x:Name="SignInBar" Severity="Informational" IsClosable="False" IsOpen="False" Margin="0,0,0,8">
                     <InfoBar.ActionButton>
@@ -83,11 +128,10 @@
                     </InfoBar.ActionButton>
                 </InfoBar>
 
+                <Border x:Name="MosaicHost" Visibility="Collapsed" />
+
                 <TextBlock x:Name="Section1Header" Style="{StaticResource SectionHeaderTextBlockStyle}" Margin="1,0,0,6" />
                 <GridView x:Name="Section1" Style="{StaticResource TileGrid}" ItemClick="Tile_ItemClick" />
-                <TextBlock x:Name="Section1Empty" Visibility="Collapsed" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Text="Right-click an app or desktop and select Add to favorites to pin it here." />
-
                 <TextBlock x:Name="Section2Header" Style="{StaticResource SectionHeaderTextBlockStyle}" />
                 <GridView x:Name="Section2" Style="{StaticResource TileGrid}" ItemClick="Tile_ItemClick" />
 

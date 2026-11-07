@@ -61,7 +61,10 @@
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
                 <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
-                <Button x:Name="StatusClose" Content="Close" HorizontalAlignment="Center" Visibility="Collapsed" Click="StatusClose_Click" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                    <Button x:Name="StatusReconnect" Content="Reconnect" Style="{StaticResource AccentButtonStyle}" Visibility="Collapsed" Click="Reconnect_Click" />
+                    <Button x:Name="StatusClose" Content="Close" Visibility="Collapsed" Click="StatusClose_Click" />
+                </StackPanel>
             </StackPanel>
         </Grid>
     </Grid>

@@ -22,11 +22,42 @@ internal static class WindowHelper
         h = Math.Min(h, area.Height);
         var x = area.X + (area.Width - w) / 2;
         var y = area.Y + (area.Height - h) / 2;
-        // MoveAndResize stores the rect full screen restores, but the first show does not move the window.
-        window.AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
-        SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        MoveTo(window, new ScreenRect(x, y, w, h));
     }
+
+    public static void MoveTo(Window window, ScreenRect rect)
+    {
+        // MoveAndResize stores the rect full screen restores, but the first show does not move the window.
+        window.AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        SetWindowPos(hwnd, IntPtr.Zero, rect.X, rect.Y, rect.Width, rect.Height, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    /// <summary>
+    /// Sets whether a window is on the taskbar and in Alt+Tab. That goes through the taskbar, so it throws while
+    /// Explorer is restarting. It's a cosmetic step that callers take after hiding a window: failing there would
+    /// strand a cloaked desktop with nothing on screen to get it back.
+    /// </summary>
+    public static void SetShownInSwitchers(Window window, bool shown)
+    {
+        try { window.AppWindow.IsShownInSwitchers = shown; }
+        catch (Exception ex) when (ex is NotImplementedException or System.Runtime.InteropServices.COMException)
+        {
+            Log.Info($"The taskbar isn't available: {ex.Message}");
+        }
+    }
+
+    /// <summary>Every screen. By index, because enumerating DisplayArea.FindAll's result can throw under CsWinRT.</summary>
+    public static List<DisplayArea> Displays()
+    {
+        var found = DisplayArea.FindAll();
+        var displays = new List<DisplayArea>(found.Count);
+        for (var i = 0; i < found.Count; i++) displays.Add(found[i]);
+        return displays;
+    }
+
+    public static List<ScreenRect> WorkAreas() =>
+        Displays().Select(d => new ScreenRect(d.WorkArea.X, d.WorkArea.Y, d.WorkArea.Width, d.WorkArea.Height)).ToList();
 
     private static double GetScale(Window window)
     {

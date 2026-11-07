@@ -9,6 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Citrium.ico</ApplicationIcon>
     <Platforms>x64;ARM64</Platforms>
+    <Configurations>Debug;Release;Demo</Configurations>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
@@ -23,7 +24,6 @@
     <LangVersion>latest</LangVersion>
     <!-- Program.cs provides Main (single-instance redirection). -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
-    <Version>0.1.0</Version>
     <Product>Citrium</Product>
     <Description>A native WinUI 3 client for Citrix StoreFront / Workspace.</Description>
 
@@ -50,6 +50,30 @@
   <ItemGroup>
     <Content Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!--
+    dotnet build -c Demo: Citrium with a made-up company and a fake machine instead of a store and Citrix. It keeps
+    its data apart from the real app's, can run beside it, and needs no account.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Demo'">
+    <DefineConstants>$(DefineConstants);DEMO</DefineConstants>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Configuration)' != 'Demo'">
+    <Compile Remove="Demo\**" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Demo'">
+    <Compile Remove="Services\StoreFrontClient.cs" />
+    <Content Include="Demo\Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\Citrium.DemoMachine\Citrium.DemoMachine.csproj" ReferenceOutputAssembly="false"
+                      SetConfiguration="Configuration=Release" SetPlatform="Platform=$(Platform)" />
+  </ItemGroup>
+  <Target Name="CopyDemoMachine" AfterTargets="Build" Condition="'$(Configuration)' == 'Demo'">
+    <ItemGroup>
+      <_DemoMachineFile Include="..\Citrium.DemoMachine\bin\$(Platform)\Release\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DemoMachineFile)" DestinationFolder="$(OutDir)DemoMachine" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />

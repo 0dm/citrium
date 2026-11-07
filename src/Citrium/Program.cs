@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Citrium.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -20,26 +21,45 @@ public static partial class Program
         var viewer = Views.ViewerOptions.TryParse(args);
         if (viewer is null)
         {
-            var key = AppInstance.FindOrRegisterForKey("Citrium.Main");
+            var key = AppInstance.FindOrRegisterForKey(AppPaths.InstanceName + ".Main");
             if (!key.IsCurrent)
             {
                 var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
                 Task.Run(() => key.RedirectActivationToAsync(activation).AsTask()).Wait();
                 return 0;
             }
-            key.Activated += (_, e) => App.Current?.OnRedirected(ExtractIcaPath(e), WantsSettings(e));
+            key.Activated += (_, e) =>
+            {
+                var link = ExtractLink(e);
+                App.Current?.OnRedirected(link is null ? ExtractIcaPath(e) : null, WantsSettings(e), link);
+            };
         }
 
         Application.Start(p =>
         {
             SynchronizationContext.SetSynchronizationContext(
                 new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread()));
-            _ = new App(viewer is null ? args.FirstOrDefault(a => a.EndsWith(".ica", StringComparison.OrdinalIgnoreCase)) : null, viewer)
+            var link = viewer is null && CitriumLink.TryFind(string.Join(' ', args), out var found) ? found : (CitriumLink?)null;
+            var ica = viewer is null && link is null ? args.FirstOrDefault(a => a.EndsWith(".ica", StringComparison.OrdinalIgnoreCase)) : null;
+            _ = new App(ica, viewer)
             {
                 OpenSettingsOnLaunch = viewer is null && args.Contains("--settings"),
+                LinkToOpen = link,
+                StartInBackground = viewer is null && args.Contains(StartupService.BackgroundArgument),
             };
         });
         return 0;
+    }
+
+    private static CitriumLink? ExtractLink(AppActivationArguments e)
+    {
+        var text = e.Data switch
+        {
+            ILaunchActivatedEventArgs launch when e.Kind == ExtendedActivationKind.Launch => launch.Arguments,
+            IProtocolActivatedEventArgs protocol when e.Kind == ExtendedActivationKind.Protocol => protocol.Uri?.AbsoluteUri,
+            _ => null,
+        };
+        return CitriumLink.TryFind(text, out var link) ? link : null;
     }
 
     private static string? ExtractIcaPath(AppActivationArguments e)

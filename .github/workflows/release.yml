@@ -1,0 +1,60 @@
+name: Release
+
+# Pushing a tag like v0.2.0 builds Citrium at that version and publishes it as a GitHub release.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - platform: x64
+            runtime: win-x64
+          - platform: ARM64
+            runtime: win-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        if: matrix.platform == 'x64'
+        run: dotnet test tests/Citrium.Tests/Citrium.Tests.csproj -c Release
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          dotnet publish src/Citrium/Citrium.csproj -c Release -p:Platform=${{ matrix.platform }} -r ${{ matrix.runtime }} -p:Version=$version -o artifacts/Citrium-${{ matrix.runtime }}
+          Compress-Archive -Path artifacts/Citrium-${{ matrix.runtime }}/* -DestinationPath Citrium-${{ matrix.runtime }}.zip
+          dotnet build installer/Citrium.Installer.wixproj -c Release -p:Platform=${{ matrix.platform }} -p:Version=$version "-p:PublishDir=${{ github.workspace }}\artifacts\Citrium-${{ matrix.runtime }}"
+          Copy-Item installer/bin/${{ matrix.platform }}/Release/*.msi .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Citrium-${{ matrix.runtime }}
+          path: |
+            Citrium-${{ matrix.runtime }}.zip
+            Citrium-*.msi
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" Citrium-*.msi Citrium-*.zip --repo "${{ github.repository }}" --generate-notes

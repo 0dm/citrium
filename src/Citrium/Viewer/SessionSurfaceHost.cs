@@ -17,7 +17,7 @@ namespace Citrium.Viewer;
 /// </summary>
 internal sealed class SessionSurfaceHost : IDisposable
 {
-    private static readonly string[] FrameProcesses = ["Citrix.DesktopViewer.App", "CDViewer", "wfica32"];
+    private static readonly string[] FrameProcesses = ["Citrix.DesktopViewer.App", "CDViewer", HdxEngine.ProcessName];
 
     private readonly string _title;
     private IntPtr _frame;
@@ -226,7 +226,7 @@ internal sealed class SessionSurfaceHost : IDisposable
             try
             {
                 using var p = Process.GetProcessById(pid);
-                if (!p.ProcessName.Equals("wfica32", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!p.ProcessName.Equals(HdxEngine.ProcessName, StringComparison.OrdinalIgnoreCase)) continue;
                 p.Kill();
                 Log.Info($"Disconnected by ending wfica32 (pid {pid})");
             }
@@ -271,7 +271,7 @@ internal sealed class SessionSurfaceHost : IDisposable
     {
         if (_frame == IntPtr.Zero || !IsWindow(_frame)) return IntPtr.Zero;
         var engines = new HashSet<uint>();
-        foreach (var p in Process.GetProcessesByName("wfica32")) using (p) engines.Add((uint)p.Id);
+        foreach (var p in Process.GetProcessesByName(HdxEngine.ProcessName)) using (p) engines.Add((uint)p.Id);
 
         IntPtr best = IntPtr.Zero;
         long bestArea = 0;

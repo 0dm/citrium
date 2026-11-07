@@ -6,7 +6,7 @@ namespace Citrium.Viewer;
 /// <summary>
 /// Keeps Alt+Tab inside the remote desktop. Citrix only captures it when Desktop Viewer itself is maximized,
 /// and Citrium keeps that window hidden, so Windows would switch away from the session. This low-level keyboard
-/// hook (in Citrium's own process) swallows the physical Tab while <paramref name="shouldForward"/> says the
+/// hook (in Citrium's own process) swallows the physical Tab while the viewer's check says the
 /// session owns the keyboard, and asks the viewer to send Citrix's Alt+Tab hotkey to the session instead.
 /// </summary>
 internal sealed class AltTabForwarder : IDisposable

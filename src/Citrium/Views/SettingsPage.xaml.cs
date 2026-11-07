@@ -22,11 +22,74 @@ public sealed partial class SettingsPage : Page
         TrayToggle.IsOn = s.MinimizeToTray;
         LogoToggle.IsOn = s.ShowOrganizationLogo;
         KeepIcaToggle.IsOn = s.KeepIcaFiles;
+        StartupToggle.IsOn = StartupService.IsEnabled;
+        LockToggle.IsOn = s.DisconnectOnLock;
+        UpdatesToggle.IsOn = s.CheckForUpdates;
+        FillAutoOpen();
         var version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0];
         AboutCard.Description = $"Version {version} · A native Windows client for Citrix stores.";
         UpdateEngine();
         UpdateViewer();
         _loading = false;
+    }
+
+    private void FillAutoOpen()
+    {
+        var saved = _state.Settings.AutoOpen ?? "";
+        AutoOpenBox.Items.Add(new ComboBoxItem { Content = "Nothing", Tag = "" });
+        foreach (var r in _state.Resources.OrderByDescending(r => r.IsDesktop).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase))
+            AutoOpenBox.Items.Add(new ComboBoxItem { Content = r.Name, Tag = AppState.LinkTo(r).ToUri() });
+
+        // Signed out, the store's list is empty, and that shouldn't quietly lose the choice.
+        var match = AutoOpenBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == saved);
+        if (match is null)
+        {
+            match = new ComboBoxItem { Content = "Your saved choice", Tag = saved };
+            AutoOpenBox.Items.Add(match);
+        }
+        AutoOpenBox.SelectedItem = match;
+    }
+
+    private void AutoOpenBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || AutoOpenBox.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        _state.Settings.AutoOpen = tag.Length == 0 ? null : tag;
+        _state.SaveSettings();
+    }
+
+    private void StartupToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        try
+        {
+            StartupService.SetEnabled(StartupToggle.IsOn);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+        {
+            Log.Error("Couldn't change starting with Windows", ex);
+            _state.Notify("Couldn't change that setting", "Your organization may manage which programs start with Windows.");
+        }
+    }
+
+    private void LockToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _state.Settings.DisconnectOnLock = LockToggle.IsOn;
+        _state.SaveSettings();
+    }
+
+    private void UpdatesToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _state.Settings.CheckForUpdates = UpdatesToggle.IsOn;
+        _state.SaveSettings();
+    }
+
+    private async void CheckNow_Click(object sender, RoutedEventArgs e)
+    {
+        CheckNowButton.IsEnabled = false;
+        if (App.Current?.MainWindow is { } window) await window.CheckForUpdatesAsync(manual: true);
+        CheckNowButton.IsEnabled = true;
     }
 
     private void UpdateViewer()
@@ -37,7 +100,7 @@ public sealed partial class SettingsPage : Page
         ViewerBox.IsEnabled = available;
         InstallWorkspaceButton.Visibility = available ? Visibility.Collapsed : Visibility.Visible;
         ViewerCard.Description = available
-            ? "Citrium's viewer keeps its controls in the title bar, and in full screen they drop down when you move the pointer to the top edge. Apps always open in their own windows."
+            ? "Citrium's viewer keeps its controls in the title bar, and in full screen they appear when you rest the pointer at the edge of the screen. Apps always open in their own windows."
             : reason;
     }
 
@@ -93,7 +156,12 @@ public sealed partial class SettingsPage : Page
     {
         var path = HdxEngine.Locate(_state.Settings.HdxEnginePath);
         EngineStatus.Text = path is null ? "Not found" : $"Version {HdxEngine.Version(path)}";
+#if DEMO
+        EngineStatus.Text = "Demo machine";
+        EnginePathCard.Description = "No Citrix here: a demo build brings its own fake machine.";
+#else
         EnginePathCard.Description = path ?? "Install Citrix Workspace app, or point Citrium at wfica32.exe.";
+#endif
     }
 
     private void ThemeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

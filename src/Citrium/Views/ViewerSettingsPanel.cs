@@ -21,6 +21,7 @@ internal sealed class ViewerSettingsPanel : Window
     private readonly ComboBox _dpi;
     private readonly ComboBox _cache;
     private readonly ComboBox _audio;
+    private readonly ComboBox _autoPip;
     private readonly ToggleSwitch _pin;
     private PanelAnchor _anchor;
     private bool _sized;
@@ -30,7 +31,7 @@ internal sealed class ViewerSettingsPanel : Window
 
     public bool IsShown => AppWindow.IsVisible;
 
-    private bool AnyDropDownOpen => _keys.IsDropDownOpen || _dpi.IsDropDownOpen || _cache.IsDropDownOpen || _audio.IsDropDownOpen;
+    private bool AnyDropDownOpen => _keys.IsDropDownOpen || _dpi.IsDropDownOpen || _cache.IsDropDownOpen || _audio.IsDropDownOpen || _autoPip.IsDropDownOpen;
 
     public ViewerSettingsPanel(ViewerSettings settings, bool citrixPreferencesAvailable)
     {
@@ -106,6 +107,10 @@ internal sealed class ViewerSettingsPanel : Window
             new[] { ("Remote", "Remote desktop"), ("FullScreenOnly", "Full screen only"), ("Local", "This PC") },
             settings.KeyPassthrough, v => settings.KeyPassthrough = v);
 
+        _autoPip = Choice(
+            new[] { ("Off", "Never"), ("Minimize", "When I minimize"), ("SwitchAway", "When I switch away") },
+            settings.AutoPictureInPicture, v => settings.AutoPictureInPicture = v);
+
         var prefs = new HyperlinkButton
         {
             Content = new StackPanel
@@ -128,6 +133,8 @@ internal sealed class ViewerSettingsPanel : Window
                 Section("Full screen"),
                 Row("Keep toolbar visible", _pin),
                 Row("Open desktops in full screen", Toggle(settings.StartFullScreen, v => settings.StartFullScreen = v)),
+                Section("Picture in picture"),
+                Row("Shrink automatically", _autoPip, "Scroll over the small window to fade it, and use its pointer button to click through it."),
                 Section("Display"),
                 Row("Scale the session for high resolution?", _dpi, "Yes matches this screen's scaling. Applies the next time you open a desktop."),
                 Row("Thinwire bitmap cache", _cache, "Automatic sizes the cache for the session. A larger cache can smooth scrolling on busy desktops."),
@@ -156,7 +163,7 @@ internal sealed class ViewerSettingsPanel : Window
         presenter.IsMinimizable = false;
         presenter.IsAlwaysOnTop = true;
         AppWindow.SetPresenter(presenter);
-        AppWindow.IsShownInSwitchers = false;
+        WindowHelper.SetShownInSwitchers(this, false);
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var round = 2; // DWMWCP_ROUND

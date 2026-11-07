@@ -15,11 +15,13 @@ public sealed partial class ResourcesPage : Page
     private Mode _mode;
     private string _query = "";
     private bool _suppressFilter;
+    private TileMosaic? _mosaic;
 
     public ResourcesPage()
     {
         InitializeComponent();
         Unloaded += (_, _) => Detach();
+        MosaicHost.LayoutUpdated += (_, _) => FitMosaic();
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -76,9 +78,7 @@ public sealed partial class ResourcesPage : Page
         switch (_mode)
         {
             case Mode.Home:
-                s1 = all.Where(r => r.IsFavorite).ToList(); h1 = "Favorites";
-                s2 = all.Where(r => r.IsDesktop).ToList(); h2 = "Desktops";
-                s3 = all.Where(r => !r.IsDesktop).ToList(); h3 = "Apps";
+                ShowMosaic(all);
                 break;
             case Mode.Favorites:
                 s1 = all.Where(r => r.IsFavorite).ToList();
@@ -100,13 +100,41 @@ public sealed partial class ResourcesPage : Page
         Bind(Section2Header, Section2, s2, h2);
         Bind(Section3Header, Section3, s3, h3);
 
-        Section1Empty.Visibility = _mode == Mode.Home && s1.Count == 0 && all.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (_mode == Mode.Home && all.Count > 0) Section1Header.Visibility = Visibility.Visible;
-
         var total = s1.Count + s2.Count + s3.Count;
         ShowEmptyState(all.Count, total);
         UpdateSignInBar();
     }
+
+    /// <summary>Everything once: favorites first and largest, then desktops, then apps.</summary>
+    private void ShowMosaic(List<StoreResource> all)
+    {
+        if (_mosaic is null)
+        {
+            _mosaic = new TileMosaic();
+            MosaicHost.Child = _mosaic;
+            FitMosaic();
+        }
+        MosaicHost.Visibility = Visibility.Visible;
+
+        var template = (DataTemplate)Resources["MosaicTileTemplate"];
+        _mosaic.Show(
+            all.OrderByDescending(r => r.IsFavorite).ThenByDescending(r => r.IsDesktop)
+               .Select(r => new MosaicTile($"{r.AccountId}/{r.Id}", r, r.IsFavorite)).ToList(),
+            () => (FrameworkElement)template.LoadContent());
+    }
+
+    /// <summary>
+    /// The room below whatever is above the tiles, like the signed-out bar, which comes and goes. Measured after
+    /// every layout, which settles straight away: the mosaic ignores a height that hasn't changed.
+    /// </summary>
+    private void FitMosaic()
+    {
+        if (_mosaic is null || _mosaic.Visibility != Visibility.Visible || Scroller.ActualHeight <= 0) return;
+        var top = MosaicHost.TransformToVisual(Scroller).TransformPoint(new Windows.Foundation.Point(0, 0)).Y + Scroller.VerticalOffset;
+        _mosaic.ViewportHeight = Math.Max(0, Scroller.ActualHeight - top - MosaicBottomMargin);
+    }
+
+    private const double MosaicBottomMargin = 12;
 
     private static void Bind(TextBlock header, GridView grid, List<StoreResource> items, string? title)
     {
@@ -187,6 +215,11 @@ public sealed partial class ResourcesPage : Page
 
     private static StoreResource? ItemOf(object sender) => (sender as FrameworkElement)?.Tag as StoreResource;
 
+    private async void MosaicTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } r) await _state.LaunchAsync(r);
+    }
+
     private async void Tile_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is StoreResource r) await _state.LaunchAsync(r);
@@ -200,6 +233,21 @@ public sealed partial class ResourcesPage : Page
     private void Favorite_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is { } r) _state.ToggleFavorite(r);
+    }
+
+    private void Shortcut_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is not { } r) return;
+        try
+        {
+            StartupService.CreateDesktopShortcut(r.Name, AppState.LinkTo(r));
+            _state.Notify("Shortcut added", $"{r.Name} is on your desktop.", InfoBarSeverity.Success);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Error("Couldn't create a desktop shortcut", ex);
+            _state.Notify("Couldn't add the shortcut", ex.Message);
+        }
     }
 
     private async void Details_Click(object sender, RoutedEventArgs e)

@@ -5,18 +5,20 @@ using Citrium.Viewer;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 
 namespace Citrium.Views;
 
-public sealed record ViewerOptions(string IcaFile, string Title, string? Account, bool DeleteIcaFile)
+public sealed record ViewerOptions(
+    string IcaFile, string Title, string? Account, bool DeleteIcaFile,
+    string? AccountId = null, string? ResourceId = null, bool FullScreen = false)
 {
     public static ViewerOptions? TryParse(string[] args)
     {
         var i = Array.IndexOf(args, "--viewer");
         if (i < 0 || i + 1 >= args.Length) return null;
         string? Arg(string name) { var j = Array.IndexOf(args, name); return j >= 0 && j + 1 < args.Length ? args[j + 1] : null; }
-        return new ViewerOptions(args[i + 1], Arg("--title") ?? "Citrix desktop", Arg("--account"), args.Contains("--delete-ica"));
+        return new ViewerOptions(args[i + 1], Arg("--title") ?? "Citrix desktop", Arg("--account"), args.Contains("--delete-ica"),
+            Arg("--account-id"), Arg("--resource-id"), args.Contains("--fullscreen"));
     }
 }
 
@@ -32,6 +34,12 @@ public sealed partial class ViewerWindow : Window
     private readonly DispatcherQueueTimer _edgeTimer;
     private readonly DispatcherQueueTimer _adoptTimer;
     private readonly DispatcherQueueTimer _foregroundTimer;
+    private readonly DispatcherQueueTimer _placementTimer;
+    private readonly SubclassProc _messageHook; // a field: Windows holds the only other reference
+    private readonly string _placementKey;
+    private WindowPlacement? _placement;
+    private DateTime _revealedAt = DateTime.MaxValue;
+    private bool _ended, _endedFullScreen, _cloakedAway;
     private AltTabForwarder? _altTab;
     private Microsoft.UI.Xaml.Media.Brush? _statusBackground;
     private bool _adopted;
@@ -44,7 +52,7 @@ public sealed partial class ViewerWindow : Window
     private bool _restoreFullScreen;
     private DateTime _toolbarHideAt = DateTime.MaxValue;
     private CancellationTokenSource? _watchCts;
-    private EventWaitHandle? _disconnectMe, _disconnectAll, _showMe;
+    private EventWaitHandle? _disconnectMe, _disconnectAll, _showMe, _pictureInPictureMe;
 
     public ViewerWindow(ViewerOptions options)
     {
@@ -57,7 +65,9 @@ public sealed partial class ViewerWindow : Window
         Title = string.IsNullOrEmpty(options.Account) ? options.Title : $"{options.Title} – {options.Account}";
         AppTitleBar.Title = Title;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Citrium.ico"));
-        WindowHelper.ResizeCentered(this, 1366, 860);
+        _placementKey = $"{options.Account}|{options.Title}";
+        _placement = PlacementStore.Load().Desktops.GetValueOrDefault(_placementKey);
+        WindowHelper.ResizeCentered(this, DefaultWidthDip, DefaultHeightDip);
         WindowHelper.ApplyTheme(this, Root);
         StatusTitle.Text = $"Connecting to {options.Title}…";
 
@@ -79,6 +89,21 @@ public sealed partial class ViewerWindow : Window
         _edgeTimer.Interval = TimeSpan.FromMilliseconds(120);
         _edgeTimer.Tick += (_, _) => TrackToolbarEdge();
 
+        // Saved after the window has been still for a moment, not on every step of a drag.
+        _placementTimer = DispatcherQueue.CreateTimer();
+        _placementTimer.Interval = TimeSpan.FromMilliseconds(800);
+        _placementTimer.IsRepeating = false;
+        _placementTimer.Tick += (_, _) => SavePlacement();
+        AppWindow.Changed += (_, e) =>
+        {
+            if (!e.DidPositionChange && !e.DidSizeChange) return;
+            _placementTimer.Stop();
+            _placementTimer.Start();
+        };
+
+        _messageHook = OnWindowMessage;
+        SetWindowSubclass(WinRT.Interop.WindowNative.GetWindowHandle(this), _messageHook, 1, 0);
+
         SessionArea.SizeChanged += (_, _) => { PositionSession(); _resizeTimer.Start(); };
         AppWindow.Closing += OnClosing;
         Activated += OnActivated;
@@ -86,23 +111,63 @@ public sealed partial class ViewerWindow : Window
         {
             // MoveAndResize in the constructor is kept as the restore rect, but the first show
             // ignores the position. Center again once the window is actually on screen.
-            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, CenterOnScreen);
-            _ = Task.Delay(300).ContinueWith(_ => DispatcherQueue.TryEnqueue(CenterOnScreen));
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, PlaceWindow);
+            _ = Task.Delay(300).ContinueWith(_ => DispatcherQueue.TryEnqueue(PlaceWindow));
             StartSignals();
             StartSession();
         };
     }
 
-    private void CenterOnScreen()
+    private void PlaceWindow()
     {
         if (_fullScreen || _hidden || _pip is not null) return;
-        WindowHelper.ResizeCentered(this, 1366, 860);
+        var presenter = AppWindow.Presenter as OverlappedPresenter;
+        if (presenter is not { State: OverlappedPresenterState.Maximized })
+        {
+            var saved = _placement is { } s ? WindowFit.Fit(new ScreenRect(s.X, s.Y, s.Width, s.Height), WindowHelper.WorkAreas()) : null;
+            if (saved is { } rect) WindowHelper.MoveTo(this, rect);
+            else WindowHelper.ResizeCentered(this, DefaultWidthDip, DefaultHeightDip);
+            if (_placement is { Maximized: true }) presenter?.Maximize();
+        }
         var p = AppWindow.Position;
         Log.Info($"Viewer window at {p.X},{p.Y} {AppWindow.Size.Width}x{AppWindow.Size.Height}");
         PositionSession();
     }
 
+    /// <summary>
+    /// Keeps what the user did with the window. Adopting the session surface can throw it around, and PlaceWindow
+    /// puts that right, so nothing is saved until that's over.
+    /// </summary>
+    private void SavePlacement()
+    {
+        if (!_adopted || _ended || _fullScreen || _hidden || _pip is not null) return;
+        if (DateTime.UtcNow - _revealedAt < PlacementSettleTime) return;
+        if (IsIconic(WinRT.Interop.WindowNative.GetWindowHandle(this))) return;
+
+        var maximized = AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
+        var position = AppWindow.Position;
+        var size = AppWindow.Size;
+        UpdatePlacement(entry =>
+        {
+            entry.Maximized = maximized;
+            if (maximized) return; // the size to come back to is the one from before maximizing
+            (entry.X, entry.Y, entry.Width, entry.Height) = (position.X, position.Y, size.Width, size.Height);
+        });
+    }
+
+    private void UpdatePlacement(Action<WindowPlacement> change) => PlacementStore.Update(all =>
+    {
+        var entry = all.Desktops.GetValueOrDefault(_placementKey) ?? new WindowPlacement();
+        change(entry);
+        all.Desktops[_placementKey] = entry;
+        _placement = entry;
+    });
+
+    private const int DefaultWidthDip = 1366, DefaultHeightDip = 860;
+    private static readonly TimeSpan PlacementSettleTime = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan AdoptTimeout = TimeSpan.FromSeconds(25);
+    private static readonly TimeSpan ReconnectPatience = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan SwitchAwayDelay = TimeSpan.FromMilliseconds(700);
     private DateTime _launchedAt;
     private bool _gaveUp;
     private int _deadTicks;
@@ -184,7 +249,7 @@ public sealed partial class ViewerWindow : Window
         }
         else if (_viewerSettings.AudioQuality switch { "High" => "0", "Medium" => "1", "Low" => "2", _ => null } is { } limit)
         {
-            IcaFileEditor.SetSessionValue(icaFile, "ClientAudio", "On");
+            // Quality only: sound the store turned off stays off.
             IcaFileEditor.SetSessionValue(icaFile, "AudioBandwidthLimit", limit);
         }
 
@@ -211,8 +276,7 @@ public sealed partial class ViewerWindow : Window
                 if (!_host.IsSessionAlive && ++_deadTicks >= 4)
                 {
                     Log.Info($"Viewer[{_options.Title}] session ended (engine={_host.Engine?.Id} surface={_host.SurfaceProcessId})");
-                    ShowError("The session ended", "The desktop disconnected. Launch it again from Citrium to reconnect.");
-                    _adoptTimer.Stop();
+                    OnSessionEnded();
                 }
                 return;
             }
@@ -241,18 +305,125 @@ public sealed partial class ViewerWindow : Window
         }
     }
 
+    /// <summary>
+    /// The viewer stays, even hidden: it's what Sessions lists as disconnected, and it holds what Reconnect needs.
+    /// Telling the user is the main window's job, because a hidden viewer has nowhere to do it.
+    /// </summary>
+    private void OnSessionEnded()
+    {
+        _ended = true;
+        _endedFullScreen = _fullScreen || _restoreFullScreen;
+        _sessionVisible = false;
+        _adoptTimer.Stop();
+        _foregroundTimer.Stop();
+        if (CanReconnect) ShowError($"{_options.Title} slipped away", "The connection ended. Your desktop may still be running, so reconnecting should put you back where you were.");
+        else ShowError("The session ended", "The desktop disconnected. Launch it again from Citrium to reconnect.");
+        StatusReconnect.Visibility = CanReconnect ? Visibility.Visible : Visibility.Collapsed;
+        PublishRegistration();
+    }
+
+    private bool CanReconnect => _options.AccountId is not null && _options.ResourceId is not null;
+
+    /// <summary>
+    /// Asks the main app to open this desktop again, by the same link a shortcut uses. It needs a new logon ticket,
+    /// which only the main app can get, and it closes this window once the new one is on its way.
+    /// </summary>
+    private async void Reconnect_Click(object sender, RoutedEventArgs e)
+    {
+        StatusReconnect.Visibility = Visibility.Collapsed;
+        StatusClose.Visibility = Visibility.Collapsed;
+        StatusIcon.Visibility = Visibility.Collapsed;
+        StatusRing.Visibility = Visibility.Visible;
+        StatusRing.IsActive = true;
+        StatusTitle.Text = "Fetching a fresh ticket…";
+        StatusText.Text = "";
+
+        try
+        {
+            var link = new CitriumLink(_options.AccountId!, _options.ResourceId!, _endedFullScreen);
+            var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+            start.ArgumentList.Add(link.ToUri());
+            System.Diagnostics.Process.Start(start)?.Dispose();
+            await Task.Delay(ReconnectPatience);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Couldn't ask Citrium to reconnect", ex);
+        }
+
+        if (_exitRequested || _disconnecting) return;
+        ShowError($"{_options.Title} is still away", "Citrium couldn't reopen it. It may be waiting for you to sign in.");
+        StatusReconnect.Visibility = Visibility.Visible;
+    }
+
     private void ReclaimKeyboard()
     {
         // Never pull a hidden or minimized viewer forward: only reclaim what Citrix's hidden frame took.
         if (_host is null || _hidden || _gaveUp || _pip is not null) return;
         if (IsIconic(WinRT.Interop.WindowNative.GetWindowHandle(this))) return;
+        WatchForSwitchAway();
+        if (_pip is not null) return;
         _host.ReclaimForegroundFromCitrix();
         _host.KeepKeyboardOnSession();
     }
 
+    private bool _heldForeground;
+    private DateTime _awaySince = DateTime.MaxValue;
+    private IntPtr _lastForeground;
+    private bool _lastForegroundIsSession;
+
+    /// <summary>Shrinks to picture in picture once another program has really taken over.</summary>
+    private void WatchForSwitchAway()
+    {
+        if (_viewerSettings.AutoPictureInPicture != "SwitchAway" || !CanEnterPictureInPicture) return;
+        var foreground = GetForegroundWindow();
+        if (foreground == WinRT.Interop.WindowNative.GetWindowHandle(this))
+        {
+            _heldForeground = true;
+            _awaySince = DateTime.MaxValue;
+            return;
+        }
+        if (!_heldForeground || foreground == IntPtr.Zero) return;
+        if (BelongsToSession(foreground))
+        {
+            _awaySince = DateTime.MaxValue;
+            return;
+        }
+
+        // A moment's grace, so a window that flashes up on its way somewhere doesn't shrink the desktop.
+        if (_awaySince == DateTime.MaxValue) _awaySince = DateTime.UtcNow;
+        else if (DateTime.UtcNow - _awaySince >= SwitchAwayDelay)
+        {
+            _heldForeground = false;
+            _awaySince = DateTime.MaxValue;
+            SetPictureInPicture(true);
+        }
+    }
+
+    /// <summary>This viewer's toolbars and panels, and Citrix's own windows, don't count as leaving.</summary>
+    private bool BelongsToSession(IntPtr window)
+    {
+        if (window == _lastForeground) return _lastForegroundIsSession;
+        _lastForeground = window;
+        _lastForegroundIsSession = false;
+        GetWindowThreadProcessId(window, out var pid);
+        if (pid == (uint)Environment.ProcessId) return _lastForegroundIsSession = true;
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById((int)pid);
+            var name = process.ProcessName;
+            _lastForegroundIsSession = name.StartsWith("Citrix", StringComparison.OrdinalIgnoreCase)
+                || name.Equals(HdxEngine.ProcessName, StringComparison.OrdinalIgnoreCase)
+                || name.Equals("CDViewer", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("Receiver", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException) { /* already gone */ }
+        return _lastForegroundIsSession;
+    }
+
     private bool SessionOwnsAltTab()
     {
-        if (_host is null || _hidden || !_adopted) return false;
+        if (_host is null || _hidden || !_adopted || _ended) return false;
         var passthrough = _viewerSettings.KeyPassthrough;
         if (passthrough == "Local" || (passthrough != "Remote" && !_fullScreen)) return false;
         var fg = GetForegroundWindow();
@@ -267,6 +438,7 @@ public sealed partial class ViewerWindow : Window
         _altTab ??= new AltTabForwarder(SessionOwnsAltTab,
             reverse => DispatcherQueue.TryEnqueue(() => _ = _host?.SendAltTabAsync(reverse)));
         _sessionVisible = true;
+        _revealedAt = DateTime.UtcNow;
         PictureInPictureButton.IsEnabled = true;
         SendToCitriumButton.IsEnabled = true;
         _adoptTimer.Interval = TimeSpan.FromMilliseconds(400);
@@ -281,17 +453,17 @@ public sealed partial class ViewerWindow : Window
         if (_hidden)
         {
             // Closed while it was still connecting. Remember full screen for when Show opens it again.
-            if (_viewerSettings.StartFullScreen) _restoreFullScreen = true;
+            if (_viewerSettings.StartFullScreen || _options.FullScreen) _restoreFullScreen = true;
             return;
         }
         Activate();
         _host.Focus();
-        if (_viewerSettings.StartFullScreen) SetFullScreen(true);
+        if (_viewerSettings.StartFullScreen || _options.FullScreen) SetFullScreen(true, onRememberedScreen: true);
         else
         {
             // Adopting the session surface can shove the frame back to the corner, so place it again.
-            CenterOnScreen();
-            _ = Task.Delay(500).ContinueWith(_ => DispatcherQueue.TryEnqueue(CenterOnScreen));
+            PlaceWindow();
+            _ = Task.Delay(500).ContinueWith(_ => DispatcherQueue.TryEnqueue(PlaceWindow));
         }
     }
 
@@ -316,6 +488,7 @@ public sealed partial class ViewerWindow : Window
         StatusTitle.Text = title;
         StatusText.Text = message;
         StatusClose.Visibility = Visibility.Visible;
+        StatusReconnect.Visibility = Visibility.Collapsed;
         if (_fullScreen) SetFullScreen(false);
     }
 
@@ -347,10 +520,11 @@ public sealed partial class ViewerWindow : Window
         if (args.WindowActivationState != WindowActivationState.Deactivated && _sessionVisible) _host?.Focus();
     }
 
-    private void SetFullScreen(bool on)
+    private void SetFullScreen(bool on, bool onRememberedScreen = false)
     {
         if (_fullScreen == on) return;
         _fullScreen = on;
+        if (on && onRememberedScreen) MoveToRememberedScreen();
         AppWindow.SetPresenter(on ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
         AppTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
 
@@ -374,14 +548,57 @@ public sealed partial class ViewerWindow : Window
         _host?.Focus();
     }
 
+    /// <summary>Only for a desktop opening by itself: pressing Full screen means this screen, wherever it was last time.</summary>
+    private void MoveToRememberedScreen()
+    {
+        if (_placement is not { FullScreenX: { } x, FullScreenY: { } y }) return;
+        var target = DisplayArea.GetFromPoint(new Windows.Graphics.PointInt32(x, y), DisplayAreaFallback.None);
+        if (target is null || target.DisplayId.Value == CurrentDisplay.DisplayId.Value) return;
+        AppWindow.Move(new Windows.Graphics.PointInt32(target.WorkArea.X + ScreenMoveInset, target.WorkArea.Y + ScreenMoveInset));
+    }
+
+    private DisplayArea CurrentDisplay => DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest);
+
+    private void MoveToNextScreen()
+    {
+        var displays = WindowHelper.Displays();
+        if (displays.Count < 2 || !_fullScreen) return;
+        var current = displays.FindIndex(d => d.DisplayId.Value == CurrentDisplay.DisplayId.Value);
+        var next = displays[(current + 1) % displays.Count];
+
+        // Full screen sticks to its screen, so it has to let go for the move.
+        _toolbar?.AppWindow.Hide();
+        AppWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+        AppWindow.Move(new Windows.Graphics.PointInt32(next.WorkArea.X + ScreenMoveInset, next.WorkArea.Y + ScreenMoveInset));
+        AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+
+        var bounds = next.OuterBounds;
+        UpdatePlacement(entry =>
+        {
+            entry.FullScreenX = bounds.X + bounds.Width / 2;
+            entry.FullScreenY = bounds.Y + bounds.Height / 2;
+        });
+        PositionSession();
+        _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            PositionSession();
+            if (_fullScreen) ShowToolbar(_toolbar is { IsPinned: true } ? null : TimeSpan.FromSeconds(2.5));
+        }));
+        _host?.Focus();
+    }
+
+    private const int ScreenMoveInset = 32;
+
     private FullScreenToolbar CreateToolbar()
     {
         var dock = Enum.TryParse<ToolbarDock>(_viewerSettings.ToolbarDock, out var saved) ? saved : ToolbarDock.Top;
-        var t = new FullScreenToolbar(_options.Title, _viewerSettings.PinToolbar, dock, _viewerSettings.ToolbarX, _viewerSettings.ToolbarY);
+        var t = new FullScreenToolbar(_options.Title, _viewerSettings.PinToolbar, dock, _viewerSettings.ToolbarX, _viewerSettings.ToolbarY,
+            multipleScreens: WindowHelper.Displays().Count > 1);
         t.SettingsRequested += () => ToggleSettingsPanel(t.SettingsPanelAnchor);
         t.PlacementChanged += SaveToolbarPlacement;
         t.CtrlAltDelRequested += () => _ = _host?.SendCtrlAltDelAsync();
         t.MinimizeRequested += Minimize;
+        t.NextScreenRequested += MoveToNextScreen;
         t.ExitFullScreenRequested += () => SetFullScreen(false);
         t.PictureInPictureRequested += () => SetPictureInPicture(true);
         t.SendToCitriumRequested += HideToSession;
@@ -400,6 +617,11 @@ public sealed partial class ViewerWindow : Window
 
     private void Minimize()
     {
+        if (ShrinksInsteadOfMinimizing)
+        {
+            SetPictureInPicture(true);
+            return;
+        }
         _toolbar?.AppWindow.Hide();
         ShowWindow(WinRT.Interop.WindowNative.GetWindowHandle(this), 6 /* SW_MINIMIZE */);
     }
@@ -435,9 +657,34 @@ public sealed partial class ViewerWindow : Window
         else ReturnFromPictureInPicture();
     }
 
+    private bool CanEnterPictureInPicture => _host is not null && _sessionVisible && !_hidden && !_gaveUp && !_exitRequested && _pip is null;
+
+    private bool ShrinksInsteadOfMinimizing => _viewerSettings.AutoPictureInPicture != "Off" && CanEnterPictureInPicture;
+
+    /// <summary>
+    /// A minimized window stops drawing, and picture in picture needs it drawing, so this has to happen instead of
+    /// the minimize. That's the title bar's button and the taskbar's, which both arrive here.
+    /// </summary>
+    private IntPtr OnWindowMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, nuint id, nuint data)
+    {
+        if (message == WM_SYSCOMMAND && (wParam.ToInt64() & 0xFFF0) == SC_MINIMIZE && ShrinksInsteadOfMinimizing)
+        {
+            DispatcherQueue.TryEnqueue(() => SetPictureInPicture(true));
+            return IntPtr.Zero;
+        }
+        return DefSubclassProc(hwnd, message, wParam, lParam);
+    }
+
+    /// <summary>The tray asked: a desktop that was sent to Citrium is already cloaked, so it only has to stop being hidden.</summary>
+    private void PictureInPictureFromTray()
+    {
+        if (_hidden && _cloakedAway) _hidden = false;
+        SetPictureInPicture(true);
+    }
+
     private void EnterPictureInPicture()
     {
-        if (_host is null || !_sessionVisible || _hidden || _gaveUp || _exitRequested) return;
+        if (!CanEnterPictureInPicture) return;
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         if (!Cloak(hwnd, true))
         {
@@ -448,10 +695,15 @@ public sealed partial class ViewerWindow : Window
         _edgeTimer.Stop();
         _toolbar?.AppWindow.Hide();
         _settingsPanel?.Hide();
-        AppWindow.IsShownInSwitchers = false;
+        WindowHelper.SetShownInSwitchers(this, false);
         var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Nearest).WorkArea;
-        _pip = new PictureInPictureWindow(_options.Title, hwnd, _host.Container, workArea);
+        _pip = new PictureInPictureWindow(_options.Title, hwnd, _host!.Container, workArea, _viewerSettings.PictureInPictureOpacity);
         _pip.ReturnRequested += () => SetPictureInPicture(false);
+        _pip.OpacityChanged += opacity =>
+        {
+            _viewerSettings.PictureInPictureOpacity = opacity;
+            SettingsService.SaveViewer(_viewerSettings);
+        };
         _pip.Activate(); // takes the keyboard, so nothing typed goes to a session that can't be seen
         Log.Info($"Viewer[{_options.Title}] in picture in picture");
     }
@@ -459,9 +711,15 @@ public sealed partial class ViewerWindow : Window
     private void ReturnFromPictureInPicture()
     {
         ClosePictureInPicture();
+        _cloakedAway = false;
+        ComeBackFromCloak();
+    }
+
+    private void ComeBackFromCloak()
+    {
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Cloak(hwnd, false);
-        AppWindow.IsShownInSwitchers = true;
+        WindowHelper.SetShownInSwitchers(this, true);
         Activate();
         SetForegroundWindow(hwnd);
         if (_fullScreen)
@@ -540,13 +798,16 @@ public sealed partial class ViewerWindow : Window
         _toolbarHideAt = autoHide is { } d ? DateTime.UtcNow + d : DateTime.MaxValue;
     }
 
-    private static readonly TimeSpan EdgeRevealDwell = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan EdgeRevealDwell = TimeSpan.FromMilliseconds(400);
     private DateTime _atEdgeSince = DateTime.MaxValue;
 
     /// <summary>
-    /// The pointer at the screen edge the toolbar lives on reveals it; it hides again once the pointer leaves it.
-    /// A floating toolbar comes back from the top edge. Polling the cursor (instead of relying on the engine to
+    /// Resting the pointer at the screen edge the toolbar lives on reveals it; it hides again once the pointer leaves
+    /// it. A floating toolbar comes back from the top edge. Polling the cursor (instead of relying on the engine to
     /// forward mouse input) is what makes it impossible for the toolbar to get "lost".
+    /// Edges are busy places in a remote desktop: title bars, taskbars and scrollbars all live there. So it takes a
+    /// pause, and never a held button: otherwise the toolbar lands under the pointer and takes the click or drag
+    /// that was meant for the session.
     /// </summary>
     private void TrackToolbarEdge()
     {
@@ -568,9 +829,13 @@ public sealed partial class ViewerWindow : Window
 
         if (atEdge)
         {
-            // The other edges are ones people push against on purpose, for a taskbar or scrollbar in the session.
+            if (!_toolbar.IsShown && IsMouseButtonDown())
+            {
+                _atEdgeSince = DateTime.MaxValue; // a pause only counts once the button is up again
+                return;
+            }
             if (_atEdgeSince == DateTime.MaxValue) _atEdgeSince = DateTime.UtcNow;
-            var settled = dock is ToolbarDock.Top or ToolbarDock.Floating || DateTime.UtcNow - _atEdgeSince >= EdgeRevealDwell;
+            var settled = DateTime.UtcNow - _atEdgeSince >= EdgeRevealDwell;
             if (!_toolbar.IsShown && !settled) return;
             if (!_toolbar.IsShown) Log.Info($"Pointer at {dock} edge ({pt.X},{pt.Y}); showing toolbar");
             if (!_toolbar.IsShown) ShowToolbar();
@@ -595,6 +860,9 @@ public sealed partial class ViewerWindow : Window
             _host?.Focus();
         }
     }
+
+    private static bool IsMouseButtonDown() =>
+        (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 || (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0 || (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
 
     private void CtrlAltDel_Click(object sender, RoutedEventArgs e) => _ = _host?.SendCtrlAltDelAsync();
     private void FullScreen_Click(object sender, RoutedEventArgs e) => SetFullScreen(true);
@@ -625,11 +893,20 @@ public sealed partial class ViewerWindow : Window
         if (_hidden) return;
         _hidden = true;
         Log.Info($"Viewer[{_options.Title}] hidden; session stays in Citrium");
-        _restoreFullScreen = _fullScreen;
-        if (_fullScreen) SetFullScreen(false);
         _edgeTimer.Stop();
         _toolbar?.AppWindow.Hide();
         _settingsPanel?.Hide();
+
+        // Cloaked for the same reasons as picture in picture: the window keeps drawing, which is what Sessions
+        // previews, and full screen needn't be left, so Citrix never renegotiates the display.
+        if (Cloak(WinRT.Interop.WindowNative.GetWindowHandle(this), true))
+        {
+            _cloakedAway = true;
+            WindowHelper.SetShownInSwitchers(this, false);
+            return;
+        }
+        _restoreFullScreen = _fullScreen;
+        if (_fullScreen) SetFullScreen(false);
         AppWindow.Hide();
     }
 
@@ -638,6 +915,19 @@ public sealed partial class ViewerWindow : Window
         if (_exitRequested) return;
         Log.Info($"Viewer[{_options.Title}] shown");
         SetPictureInPicture(false);
+        if (_cloakedAway)
+        {
+            _cloakedAway = false;
+            _hidden = false;
+            ComeBackFromCloak();
+            if (_restoreFullScreen)
+            {
+                _restoreFullScreen = false;
+                SetFullScreen(true, onRememberedScreen: true);
+            }
+            if (_sessionVisible) _host?.Show(true);
+            return;
+        }
         AppWindow.Show();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         if (IsIconic(hwnd)) ShowWindow(hwnd, 9 /* SW_RESTORE */);
@@ -697,9 +987,10 @@ public sealed partial class ViewerWindow : Window
     {
         if (_disconnectMe is not null) return;
         var pid = Environment.ProcessId;
-        (_disconnectMe, _disconnectAll, _showMe) = ViewerRegistry.OpenSignals(pid);
+        (_disconnectMe, _disconnectAll, _showMe, _pictureInPictureMe) = ViewerRegistry.OpenSignals(pid);
         _disconnectMe.Reset();
         _showMe.Reset();
+        _pictureInPictureMe.Reset();
         PublishRegistration();
         _watchCts = new CancellationTokenSource();
         var token = _watchCts.Token;
@@ -713,12 +1004,13 @@ public sealed partial class ViewerWindow : Window
         ViewerRegistry.Register(new ViewerInfo(
             Environment.ProcessId, engine,
             WinRT.Interop.WindowNative.GetWindowHandle(this).ToInt64(),
-            _options.Title, _options.Account));
+            _options.Title, _options.Account, _host?.Container.ToInt64() ?? 0,
+            _options.AccountId, _options.ResourceId, _ended, _endedFullScreen));
     }
 
     private void WatchSignals(CancellationToken token)
     {
-        var handles = new WaitHandle[] { _disconnectMe!, _disconnectAll!, _showMe! };
+        var handles = new WaitHandle[] { _disconnectMe!, _disconnectAll!, _showMe!, _pictureInPictureMe! };
         var misses = 0;
         while (!token.IsCancellationRequested)
         {
@@ -733,6 +1025,12 @@ public sealed partial class ViewerWindow : Window
             {
                 _showMe!.Reset();
                 DispatcherQueue.TryEnqueue(PopOut);
+                continue;
+            }
+            if (idx == 3)
+            {
+                _pictureInPictureMe!.Reset();
+                DispatcherQueue.TryEnqueue(PictureInPictureFromTray);
                 continue;
             }
 
@@ -753,6 +1051,14 @@ public sealed partial class ViewerWindow : Window
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    private const int VK_LBUTTON = 0x01, VK_RBUTTON = 0x02, VK_MBUTTON = 0x04;
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    private const uint WM_SYSCOMMAND = 0x112;
+    private const long SC_MINIMIZE = 0xF020;
+    private delegate IntPtr SubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, nuint id, nuint data);
+    [DllImport("comctl32.dll")] private static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, nuint id, nuint data);
+    [DllImport("comctl32.dll")] private static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     private const int DWMWA_CLOAK = 13;
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref POINT pt);

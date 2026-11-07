@@ -62,7 +62,7 @@ public sealed partial class AccountState : INotifyPropertyChanged
     private void OnChanged([CallerMemberName] string? n = null) => PropertyChanged?.Invoke(this, new(n));
 }
 
-public sealed record Notification(string Title, string Message, InfoBarSeverity Severity);
+public sealed record Notification(string Title, string Message, InfoBarSeverity Severity, string? ActionLabel = null, Action? Action = null);
 
 public sealed class AppState
 {
@@ -92,6 +92,9 @@ public sealed class AppState
             try { a.EntryUrl = NormalizeUrl(a.EntryUrl); } catch (FormatException) { }
             Accounts.Add(new AccountState(a));
         }
+#if DEMO
+        Demo.DemoWorld.Seed(this);
+#endif
         Sessions = new SessionMonitor(dispatcher);
         HdxEngine.CleanupOldFiles();
     }
@@ -105,8 +108,8 @@ public sealed class AppState
     /// <summary>Viewer processes only need settings (theme); no accounts, sessions or timers.</summary>
     public void LoadSettings() => Settings = SettingsService.Load();
 
-    public void Notify(string title, string message, InfoBarSeverity severity = InfoBarSeverity.Error) =>
-        _dispatcher?.TryEnqueue(() => Notified?.Invoke(this, new Notification(title, message, severity)));
+    public void Notify(string title, string message, InfoBarSeverity severity = InfoBarSeverity.Error, string? actionLabel = null, Action? action = null) =>
+        _dispatcher?.TryEnqueue(() => Notified?.Invoke(this, new Notification(title, message, severity, actionLabel, action)));
 
     public async Task<AccountState?> AddAccountAsync(string name, string url)
     {
@@ -133,6 +136,7 @@ public sealed class AppState
         if (state.Client is not null) await state.Client.LogoffAsync();
         state.Client?.Dispose();
         CookieVault.Delete(state.Account.Id);
+        await SignInWindow.ClearBrowserDataAsync();
         BrandingService.Delete(state.Account);
         Accounts.Remove(state);
         BrandingChanged?.Invoke(this, EventArgs.Empty);
@@ -151,18 +155,7 @@ public sealed class AppState
         RemoveResourcesOf(state.Account.Id);
     }
 
-    public static string NormalizeUrl(string url)
-    {
-        url = url.Trim();
-        if (!url.Contains("://")) url = "https://" + url;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "https" && uri.Scheme != "http"))
-            throw new FormatException("Enter a valid store or gateway address, e.g. citrix.contoso.com");
-        // A trailing dot (e.g. from copying a sentence) breaks TLS name matching and cookies.
-        var host = uri.Host.TrimEnd('.');
-        if (host.Length == 0 || !host.Contains('.'))
-            throw new FormatException("Enter a valid store or gateway address, e.g. citrix.contoso.com");
-        return new UriBuilder(uri) { Host = host }.Uri.ToString();
-    }
+    public static string NormalizeUrl(string url) => StoreUrl.Normalize(url);
 
     public async Task<bool> SignInAsync(AccountState state)
     {
@@ -170,7 +163,11 @@ public sealed class AppState
         state.Error = null;
         try
         {
+#if DEMO
+            var result = new SignInResult(Demo.DemoWorld.StoreWebUrl, []);
+#else
             var result = await SignInWindow.SignInAsync(state.Account);
+#endif
             if (result is null)
             {
                 state.Status = AccountStatus.NotSignedIn;
@@ -207,7 +204,7 @@ public sealed class AppState
     {
         if (state.IsBusy && state.Status != AccountStatus.SigningIn) return false;
 
-        if (state.Client is null && state.Account.StoreWebUrl is not null)
+        if (state.Client is null && state.Account.StoreWebUrl?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true)
         {
             var cookies = await CookieVault.LoadAsync(state.Account.Id);
             if (cookies.Count > 0) state.Client = new StoreFrontClient(state.Account, cookies);
@@ -259,15 +256,33 @@ public sealed class AppState
             Resources.Add(r);
             _ = IconCache.LoadAsync(r, state.Client);
         }
-        ResourcesChanged?.Invoke(this, EventArgs.Empty);
+        RaiseResourcesChanged();
     }
 
     private void RemoveResourcesOf(string accountId, bool raise = true)
     {
         for (var i = Resources.Count - 1; i >= 0; i--)
             if (Resources[i].AccountId == accountId) Resources.RemoveAt(i);
-        if (raise) ResourcesChanged?.Invoke(this, EventArgs.Empty);
+        if (raise) RaiseResourcesChanged();
     }
+
+    private void RaiseResourcesChanged()
+    {
+        ResourcesChanged?.Invoke(this, EventArgs.Empty);
+        UpdateJumpList();
+    }
+
+    private List<JumpListItem>? _jumpList;
+
+    private void UpdateJumpList()
+    {
+        var items = Resources.Where(r => r.IsFavorite).Select(r => new JumpListItem(r.Name, LinkTo(r).ToUri())).ToList();
+        if (_jumpList?.SequenceEqual(items) == true) return;
+        _jumpList = items;
+        JumpList.Update(items);
+    }
+
+    internal static CitriumLink LinkTo(StoreResource resource, bool fullScreen = false) => new(resource.AccountId, resource.Id, fullScreen);
 
     private async Task RefreshBrandingAsync(Account account)
     {
@@ -284,26 +299,49 @@ public sealed class AppState
         state.Account.Favorites.Remove(resource.Id);
         if (resource.IsFavorite) state.Account.Favorites.Add(resource.Id);
         SaveSettings();
-        ResourcesChanged?.Invoke(this, EventArgs.Empty);
+        RaiseResourcesChanged();
     }
 
-    public async Task LaunchAsync(StoreResource resource)
+    /// <summary>Opens what a link points to. False if it couldn't, after saying why.</summary>
+    internal async Task<bool> OpenLinkAsync(CitriumLink link)
     {
-        if (resource.IsLaunching) return;
+        var state = Accounts.FirstOrDefault(a => a.Account.Id == link.AccountId);
+        if (state is null)
+        {
+            Notify("That link doesn't lead anywhere", "It's for an account that isn't on this PC.");
+            return false;
+        }
+
+        StoreResource? Find() => Resources.FirstOrDefault(r => r.AccountId == link.AccountId && r.Id == link.ResourceId);
+
+        // At startup the first refresh is still running, and a busy account won't refresh again.
+        for (var i = 0; i < 300 && state.IsBusy; i++) await Task.Delay(100);
+        if (Find() is null) await RefreshAccountAsync(state, interactive: true);
+
+        if (Find() is { } resource) return await LaunchAsync(resource, link.FullScreen);
+        if (state.IsSignedIn) Notify("That link doesn't lead anywhere", $"{state.Name} no longer offers it.");
+        return false;
+    }
+
+    /// <summary>True once the session is on its way, or was already open.</summary>
+    public async Task<bool> LaunchAsync(StoreResource resource, bool fullScreen = false)
+    {
+        if (resource.IsLaunching) return false;
         var state = Accounts.FirstOrDefault(a => a.Account.Id == resource.AccountId);
-        if (state is null) return;
+        if (state is null) return false;
 
         // Already open in a viewer (possibly hidden)? Bring it back instead of starting a new connection.
-        if (resource.IsDesktop && Viewer.ViewerRegistry.Find(resource.Name, state.Name) is { } running)
+        var open = resource.IsDesktop ? Viewer.ViewerRegistry.Find(resource.Name, state.Name) : null;
+        if (open is { Ended: false })
         {
-            Viewer.ViewerRegistry.Show(running);
-            return;
+            Viewer.ViewerRegistry.Show(open);
+            return true;
         }
 
         resource.IsLaunching = true;
         try
         {
-            if (state.Client is null && !await RefreshAccountAsync(state, interactive: true)) return;
+            if (state.Client is null && !await RefreshAccountAsync(state, interactive: true)) return false;
 
             string ica;
             try
@@ -312,21 +350,26 @@ public sealed class AppState
             }
             catch (StoreAuthRequiredException)
             {
-                if (!await SignInAsync(state)) return;
+                if (!await SignInAsync(state)) return false;
                 ica = await state.Client!.GetIcaFileAsync(resource);
             }
 
-                        // Apps stay seamless: Citrix draws their windows as normal local windows.
+            // Only now that there's a ticket: until then, the old window is what's telling the user what happened.
+            if (open is not null) Viewer.ViewerRegistry.RequestDisconnect(open.ViewerPid);
+
+            // Apps stay seamless: Citrix draws their windows as normal local windows.
             var proc = resource.IsDesktop && Settings.DesktopViewer != "Citrix" && Viewer.ViewerLauncher.IsAvailable(out _)
-                ? Viewer.ViewerLauncher.Launch(ica, resource.Name, state.Name, Settings.KeepIcaFiles)
+                ? Viewer.ViewerLauncher.Launch(ica, resource.Name, state.Name, LinkTo(resource, fullScreen), Settings.KeepIcaFiles)
                 : HdxEngine.Launch(ica, resource.Name, Settings.HdxEnginePath, Settings.KeepIcaFiles);
             Sessions.Register(proc, resource.Name, state.Name, resource.IsDesktop);
             Notify($"Starting {resource.Name}", "Your session is being prepared…", InfoBarSeverity.Informational);
+            return true;
         }
         catch (Exception ex)
         {
             Log.Error($"Launch of {resource.Name} failed", ex);
             Notify($"Couldn't start {resource.Name}", ex is HttpRequestException ? "Can't reach the store." : ex.Message);
+            return false;
         }
         finally
         {

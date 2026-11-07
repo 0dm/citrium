@@ -41,12 +41,109 @@ public sealed partial class MainWindow : Window
             Path.Combine(AppContext.BaseDirectory, "Assets", "Citrium.ico"));
         _tray.OpenRequested += () => DispatcherQueue.TryEnqueue(BringToFront);
         _tray.QuitRequested += () => DispatcherQueue.TryEnqueue(Quit);
+        _tray.MenuItems = BuildTrayMenu;
         UpdateTray();
+        UpdateTrayTip();
         AppWindow.Closing += OnClosing;
+
+        _state.Sessions.Dropped += OnSessionDropped;
+        _lockWatcher = new LockWatcher(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        _lockWatcher.Locked += OnWindowsLocked;
+        _lockWatcher.Unlocked += OnWindowsUnlocked;
     }
 
     private readonly TrayIcon _tray;
+    private readonly LockWatcher _lockWatcher;
+    private List<ViewerInfo> _awayOnLock = [];
     private bool _quitting;
+
+    private bool IsInFront => AppWindow.IsVisible && GetForegroundWindow() == WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+    /// <summary>In Citrium's own notification bar, and in a Windows notification if Citrium isn't what they're looking at.</summary>
+    private void Alert(string title, string message, InfoBarSeverity severity, string actionLabel, Action action)
+    {
+        _state.Notify(title, message, severity, actionLabel, action);
+        if (!IsInFront) _tray.Notify(title, message, action);
+    }
+
+    /// <summary>Opens a link. Citrium comes forward if it can't, since that's where the reason and any sign-in are.</summary>
+    internal async void OpenLink(CitriumLink link)
+    {
+        if (!await _state.OpenLinkAsync(link)) BringToFront();
+    }
+
+    private void OnSessionDropped(HdxSession session)
+    {
+        if (session.Viewer is not { AccountId: { } account, ResourceId: { } resource } viewer) return;
+        if (GetForegroundWindow() == new IntPtr(viewer.WindowHandle)) return; // its own Reconnect button is right in front of them
+        Alert($"{session.Name} slipped away", "Its connection ended. Click to bring it back.", InfoBarSeverity.Warning, "Reconnect",
+            () => OpenLink(new CitriumLink(account, resource, viewer.WasFullScreen)));
+    }
+
+    private void OnWindowsLocked()
+    {
+        if (!_state.Settings.DisconnectOnLock) return;
+        var viewers = ViewerRegistry.ReadAll().Where(v => !v.Ended).ToList();
+        _awayOnLock = viewers.Where(v => v.AccountId is not null && v.ResourceId is not null).ToList();
+        // One by one: the "disconnect all" signal stays set, and would end desktops opened after unlocking too.
+        foreach (var viewer in viewers) ViewerRegistry.RequestDisconnect(viewer.ViewerPid);
+        Log.Info($"Windows locked: disconnected {viewers.Count} desktop(s)");
+    }
+
+    private void OnWindowsUnlocked()
+    {
+        var away = _awayOnLock;
+        _awayOnLock = [];
+        if (away.Count == 0) return;
+        var message = away.Count == 1 ? $"{away[0].Title} is waiting. Click to reconnect." : $"{away.Count} desktops are waiting. Click to reconnect.";
+        Alert("Welcome back", message, InfoBarSeverity.Informational, "Reconnect", () =>
+        {
+            foreach (var viewer in away) OpenLink(new CitriumLink(viewer.AccountId!, viewer.ResourceId!));
+        });
+    }
+
+    private IReadOnlyList<TrayMenuItem> BuildTrayMenu()
+    {
+        var items = new List<TrayMenuItem>();
+        var sessions = _state.Sessions.Sessions;
+        if (sessions.Count > 0) items.Add(new TrayMenuItem("Running"));
+        foreach (var session in sessions)
+        {
+            if (session.Viewer is { Ended: true, AccountId: { } account, ResourceId: { } resource })
+            {
+                items.Add(new TrayMenuItem($"{session.Name} (reconnect)", () => OpenLink(new CitriumLink(account, resource))));
+            }
+            else if (session.Viewer is { } viewer)
+            {
+                items.Add(new TrayMenuItem(session.Name, Children:
+                [
+                    new TrayMenuItem("Show", () => SessionMonitor.BringToFront(session)),
+                    new TrayMenuItem("Picture in picture", () => ViewerRegistry.RequestPictureInPicture(viewer.ViewerPid)),
+                ]));
+            }
+            else
+            {
+                items.Add(new TrayMenuItem(session.Name, () => SessionMonitor.BringToFront(session)));
+            }
+        }
+
+        // Something already running has its row above, with more to offer than opening it again.
+        var favorites = _state.Resources
+            .Where(r => r.IsFavorite && !sessions.Any(s => s.Name == r.Name && s.AccountName == r.AccountName))
+            .Take(MaxTrayFavorites)
+            .ToList();
+        if (favorites.Count > 0) items.Add(new TrayMenuItem("Favorites"));
+        foreach (var favorite in favorites) items.Add(new TrayMenuItem(favorite.Name, () => _ = _state.LaunchAsync(favorite)));
+        return items;
+    }
+
+    private const int MaxTrayFavorites = 10;
+
+    private void UpdateTrayTip()
+    {
+        var n = _state.Sessions.Sessions.Count;
+        _tray.SetTip(n == 0 ? "Citrium · All quiet" : $"Citrium · {n} session{(n == 1 ? "" : "s")} running");
+    }
 
     public void UpdateTray()
     {
@@ -60,6 +157,7 @@ public sealed partial class MainWindow : Window
         {
             // Citrium is really exiting: desktop viewers (and their sessions) go with it.
             ViewerRegistry.RequestDisconnectAll();
+            _lockWatcher.Dispose();
             _tray.Dispose();
             return;
         }
@@ -79,6 +177,7 @@ public sealed partial class MainWindow : Window
     {
         _quitting = true;
         ViewerRegistry.RequestDisconnectAll();
+        _lockWatcher.Dispose();
         _tray.Dispose();
         Close();
         Application.Current.Exit();
@@ -90,11 +189,50 @@ public sealed partial class MainWindow : Window
         AccountsPage.PromptAddOnLoad = _state.Accounts.Count == 0 && !_settingsRequested;
         Nav.SelectedItem = _settingsRequested ? Nav.SettingsItem : _state.Accounts.Count == 0 ? AccountsItem : HomeItem;
 
-        if (_state.Accounts.Count > 0 && _state.Settings.RefreshOnStartup)
+        var hasAutoOpen = CitriumLink.TryParse(_state.Settings.AutoOpen, out var autoOpen);
+        if (_state.Accounts.Count > 0 && (_state.Settings.RefreshOnStartup || hasAutoOpen))
         {
             await _state.RefreshAllAsync(interactive: false);
         }
+
+        // Not through OpenLink: a sign-in window shouldn't greet someone at startup for this.
+        if (hasAutoOpen && _state.Resources.FirstOrDefault(r => r.AccountId == autoOpen.AccountId && r.Id == autoOpen.ResourceId) is { } resource)
+        {
+            await _state.LaunchAsync(resource);
+        }
+
+        await CheckForUpdatesAsync(manual: false);
     }
+
+    public async Task CheckForUpdatesAsync(bool manual)
+    {
+        var settings = _state.Settings;
+        if (!manual)
+        {
+            if (!settings.CheckForUpdates) return;
+            if (settings.LastUpdateCheck is { } last && DateTimeOffset.Now - last < UpdateCheckInterval) return;
+        }
+        settings.LastUpdateCheck = DateTimeOffset.Now;
+        _state.SaveSettings();
+
+        var check = await UpdateService.CheckAsync();
+        if (check.Newer is { } release)
+        {
+            Alert("A fresher Citrium is ready", $"Version {release.Version} is out. You have {UpdateService.Current}.",
+                InfoBarSeverity.Informational, "View release",
+                () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Url) { UseShellExecute = true })?.Dispose());
+        }
+        else if (manual && check.Answered)
+        {
+            _state.Notify("Freshly squeezed", $"You're on the latest version, {UpdateService.Current}.", InfoBarSeverity.Success);
+        }
+        else if (manual)
+        {
+            _state.Notify("Couldn't check for updates", "GitHub has no release to compare with, or can't be reached right now.", InfoBarSeverity.Warning);
+        }
+    }
+
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromDays(1);
 
     private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args) => Nav.IsPaneOpen = !Nav.IsPaneOpen;
 
@@ -213,6 +351,7 @@ public sealed partial class MainWindow : Window
         var n = _state.Sessions.Sessions.Count;
         SessionsBadge.Value = n;
         SessionsBadge.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateTrayTip();
     }
 
     private async void ShowToast(Notification n)
@@ -222,10 +361,21 @@ public sealed partial class MainWindow : Window
         Toast.Title = n.Title;
         Toast.Message = n.Message;
         Toast.Severity = n.Severity;
+        Toast.ActionButton = null;
+        if (n is { ActionLabel: { } label, Action: { } action })
+        {
+            var button = new Button { Content = label };
+            button.Click += (_, _) =>
+            {
+                Toast.IsOpen = false;
+                action();
+            };
+            Toast.ActionButton = button;
+        }
         Toast.IsOpen = true;
         try
         {
-            await Task.Delay(n.Severity == InfoBarSeverity.Error ? 12000 : 5000, cts.Token);
+            await Task.Delay(n.Severity == InfoBarSeverity.Error || n.ActionLabel is not null ? 12000 : 5000, cts.Token);
             Toast.IsOpen = false;
         }
         catch (TaskCanceledException) { }
@@ -239,4 +389,5 @@ public sealed partial class MainWindow : Window
     }
 
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
 }

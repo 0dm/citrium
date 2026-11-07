@@ -21,7 +21,7 @@ internal static class ViewerLauncher
         return false;
     }
 
-    public static Process Launch(string icaContent, string title, string? account, bool keepFile)
+    public static Process Launch(string icaContent, string title, string? account, CitriumLink link, bool keepFile)
     {
         var safe = string.Concat(title.Split(Path.GetInvalidFileNameChars()));
         var file = Path.Combine(AppPaths.IcaFiles, $"{safe}-{Guid.NewGuid():N}.ica");
@@ -37,6 +37,11 @@ internal static class ViewerLauncher
             psi.ArgumentList.Add("--account");
             psi.ArgumentList.Add(account);
         }
+        psi.ArgumentList.Add("--account-id");
+        psi.ArgumentList.Add(link.AccountId);
+        psi.ArgumentList.Add("--resource-id");
+        psi.ArgumentList.Add(link.ResourceId);
+        if (link.FullScreen) psi.ArgumentList.Add("--fullscreen");
         if (!keepFile) psi.ArgumentList.Add("--delete-ica");
 
         var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start the Citrium viewer.");

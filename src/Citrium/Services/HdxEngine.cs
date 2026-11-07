@@ -10,8 +10,17 @@ namespace Citrium.Services;
 /// </summary>
 internal static class HdxEngine
 {
+#if DEMO
+    public const string ProcessName = "citrium-demo-machine";
+#else
+    public const string ProcessName = "wfica32";
+#endif
+
     public static string? Locate(string? overridePath = null)
     {
+#if DEMO
+        return Path.Combine(AppContext.BaseDirectory, "DemoMachine", ProcessName + ".exe");
+#else
         if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath)) return overridePath;
 
         foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
@@ -39,6 +48,7 @@ internal static class HdxEngine
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Citrix\ICA Client\wfica32.exe"),
         ];
         return candidates.FirstOrDefault(File.Exists);
+#endif
     }
 
     public static string? Version(string? path)

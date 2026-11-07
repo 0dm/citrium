@@ -21,6 +21,7 @@ public sealed partial class SignInWindow : Window
     private readonly Account _account;
     private readonly TaskCompletionSource<SignInResult?> _tcs = new();
     private bool _completed;
+    private readonly HashSet<string> _askedHosts = new(StringComparer.OrdinalIgnoreCase);
 
     private SignInWindow(Account account)
     {
@@ -47,10 +48,31 @@ public sealed partial class SignInWindow : Window
         return window._tcs.Task;
     }
 
-    public static Task ClearBrowserDataAsync()
+    /// <summary>
+    /// Deletes the embedded browser's profile, including identity provider cookies. Its processes can outlive the
+    /// sign-in window briefly, so this retries, and the flag finishes the job on next use if the files stay locked.
+    /// </summary>
+    public static async Task ClearBrowserDataAsync()
     {
         try { File.WriteAllText(ClearFlag, "1"); } catch { }
-        return Task.CompletedTask;
+        _environment = null;
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    Directory.Delete(AppPaths.WebView2Data, recursive: true);
+                    File.Delete(ClearFlag);
+                });
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                await Task.Delay(500);
+            }
+        }
+        Log.Info("Browser data is in use; it will be cleared the next time sign-in opens");
     }
 
     private async void OnFirstActivated(object sender, WindowActivatedEventArgs e)
@@ -115,12 +137,13 @@ public sealed partial class SignInWindow : Window
 
     private async void OnResponseReceived(CoreWebView2 sender, CoreWebView2WebResourceResponseReceivedEventArgs args)
     {
-        if (_completed) return;
-        var uri = args.Request.Uri;
-        var idx = uri.IndexOf("/Resources/List", StringComparison.OrdinalIgnoreCase);
-        if (idx < 0 || args.Response.StatusCode != 200) return;
+        if (_completed || args.Response.StatusCode != 200) return;
+        if (!Uri.TryCreate(args.Request.Uri, UriKind.Absolute, out var request) || request.Scheme != Uri.UriSchemeHttps) return;
+        var idx = request.AbsolutePath.IndexOf("/Resources/List", StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return;
 
-        var storeWeb = uri[..(idx + 1)];
+        var storeWeb = request.GetLeftPart(UriPartial.Authority) + request.AbsolutePath[..(idx + 1)];
+        if (!await ConfirmStoreHostAsync(request.Host) || _completed) return;
         Log.Info($"Discovered store at {storeWeb}");
         DonePanel.Visibility = Visibility.Visible;
 
@@ -149,6 +172,34 @@ public sealed partial class SignInWindow : Window
             Log.Error("Could not read cookies", ex);
             DonePanel.Visibility = Visibility.Collapsed;
         }
+    }
+
+    /// <summary>
+    /// Any page in this window can request a URL like a store's, and the store chosen here decides which launch
+    /// files Citrium runs. A store can legitimately sit on another host, so an unexpected one is the user's call.
+    /// </summary>
+    private async Task<bool> ConfirmStoreHostAsync(string host)
+    {
+        var entry = new Uri(_account.EntryUrl).Host;
+        var known = _account.StoreWebUrl is { } url ? new Uri(url).Host : entry;
+        if (host.Equals(entry, StringComparison.OrdinalIgnoreCase) || host.Equals(known, StringComparison.OrdinalIgnoreCase)) return true;
+        if (!_askedHosts.Add(host)) return false;
+
+        var dialog = new ContentDialog
+        {
+            Title = "Use this store?",
+            Content = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Text = $"Sign-in finished at {host}, but this account was added as {entry}. Only continue if your organization uses this address.",
+            },
+            PrimaryButtonText = "Use this store",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Root.XamlRoot,
+            RequestedTheme = Root.ActualTheme,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private void Complete(SignInResult? result)
