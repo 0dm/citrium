@@ -92,7 +92,7 @@
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
                 </Grid>
-                <tk:SettingsCard Header="Install updates automatically">
+                <tk:SettingsCard Header="Check for updates automatically">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE823;" /></tk:SettingsCard.HeaderIcon>
                     <ToggleSwitch x:Name="UpdatesToggle" Toggled="UpdatesToggle_Toggled" />
                 </tk:SettingsCard>
