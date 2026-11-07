@@ -201,34 +201,20 @@ public sealed partial class MainWindow : Window
             await _state.LaunchAsync(resource);
         }
 
-        await CheckForUpdatesAsync(manual: false);
+        await CheckForUpdatesInBackgroundAsync();
     }
 
-    public async Task CheckForUpdatesAsync(bool manual)
+    private async Task CheckForUpdatesInBackgroundAsync()
     {
         var settings = _state.Settings;
-        if (!manual)
-        {
-            if (!settings.CheckForUpdates) return;
-            if (settings.LastUpdateCheck is { } last && DateTimeOffset.Now - last < UpdateCheckInterval) return;
-        }
-        settings.LastUpdateCheck = DateTimeOffset.Now;
-        _state.SaveSettings();
+        if (!settings.CheckForUpdates) return;
+        if (settings.LastUpdateCheck is { } last && DateTimeOffset.Now - last < UpdateCheckInterval) return;
 
-        var check = await UpdateService.CheckAsync();
-        if (check.Newer is { } release)
+        if (await _state.CheckForUpdatesAsync() is { } release)
         {
             Alert("A fresher Citrium is ready", $"Version {release.Version} is out. You have {UpdateService.Current}.",
                 InfoBarSeverity.Informational, "View release",
                 () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Url) { UseShellExecute = true })?.Dispose());
-        }
-        else if (manual && check.Answered)
-        {
-            _state.Notify("Freshly squeezed", $"You're on the latest version, {UpdateService.Current}.", InfoBarSeverity.Success);
-        }
-        else if (manual)
-        {
-            _state.Notify("Couldn't check for updates", "GitHub has no release to compare with, or can't be reached right now.", InfoBarSeverity.Warning);
         }
     }
 

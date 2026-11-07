@@ -19,6 +19,8 @@ internal static class UpdateService
     private const string LatestReleaseUrl = $"https://api.github.com/repos/{Repository}/releases/latest";
     private const string ReleasePagePrefix = $"https://github.com/{Repository}/releases/";
 
+    public const string LatestReleasePage = $"{ReleasePagePrefix}latest";
+
     public static Version Current { get; } = Trim(Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0));
 
     public static async Task<UpdateCheck> CheckAsync()
@@ -68,6 +70,16 @@ internal static class UpdateService
     }
 
     public static bool IsNewer(Version candidate, Version current) => Trim(candidate) > Trim(current);
+
+    /// <summary>"Today, 11:07 AM", in <paramref name="now"/>'s time zone. Older than yesterday, it gives the date.</summary>
+    public static string DescribeLastCheck(DateTimeOffset when, DateTimeOffset now)
+    {
+        var local = when.ToOffset(now.Offset);
+        var day = local.Date == now.Date ? "Today"
+            : local.Date == now.Date.AddDays(-1) ? "Yesterday"
+            : local.ToString("d");
+        return $"{day}, {local:t}";
+    }
 
     private static bool Flag(JsonElement root, string name) =>
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;

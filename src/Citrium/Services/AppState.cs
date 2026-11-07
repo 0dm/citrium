@@ -83,6 +83,38 @@ public sealed class AppState
         Accounts.Select(a => BrandingService.Cached(a.Account)).FirstOrDefault(l => l is not null);
     public event EventHandler<Notification>? Notified;
 
+    public bool CheckingForUpdates { get; private set; }
+
+    /// <summary>The last check got no answer from GitHub. Only true until the next check, or until Citrium restarts.</summary>
+    public bool UpdateCheckFailed { get; private set; }
+
+    public event EventHandler? UpdateStatusChanged;
+
+    /// <summary>The latest version GitHub told us about, if it's newer than this one.</summary>
+    public Version? AvailableUpdate =>
+        Version.TryParse(Settings.LatestVersion, out var version) && UpdateService.IsNewer(version, UpdateService.Current) ? version : null;
+
+    /// <summary>Returns the release if there's a newer one. Does nothing if a check is already running.</summary>
+    internal async Task<ReleaseInfo?> CheckForUpdatesAsync()
+    {
+        if (CheckingForUpdates) return null;
+        CheckingForUpdates = true;
+        UpdateStatusChanged?.Invoke(this, EventArgs.Empty);
+
+        var check = await UpdateService.CheckAsync();
+
+        CheckingForUpdates = false;
+        UpdateCheckFailed = !check.Answered;
+        if (check.Answered)
+        {
+            Settings.LastUpdateCheck = DateTimeOffset.Now;
+            Settings.LatestVersion = check.Newer?.Version.ToString();
+            SaveSettings();
+        }
+        UpdateStatusChanged?.Invoke(this, EventArgs.Empty);
+        return check.Newer;
+    }
+
     public void Initialize(DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;

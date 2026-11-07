@@ -72,4 +72,33 @@ public class UpdateServiceTests
     {
         Assert.Equal(newer, UpdateService.IsNewer(Version.Parse(candidate), Version.Parse(current)));
     }
+
+    [Theory]
+    [InlineData(0, "Today")]
+    [InlineData(-1, "Yesterday")]
+    public void NamesRecentDays(int days, string name)
+    {
+        var now = new DateTimeOffset(2026, 11, 6, 20, 0, 0, TimeSpan.FromHours(-5));
+        var when = now.AddDays(days).AddHours(-1);
+
+        Assert.Equal($"{name}, {when:t}", UpdateService.DescribeLastCheck(when, now));
+    }
+
+    [Fact]
+    public void GivesTheDateForAnythingOlder()
+    {
+        var now = new DateTimeOffset(2026, 11, 6, 20, 0, 0, TimeSpan.Zero);
+        var when = now.AddDays(-2);
+
+        Assert.Equal($"{when:d}, {when:t}", UpdateService.DescribeLastCheck(when, now));
+    }
+
+    [Fact]
+    public void JudgesTheDayInTheTimeZoneOfNow()
+    {
+        var now = new DateTimeOffset(2026, 11, 6, 1, 0, 0, TimeSpan.FromHours(9));
+        var elsewhere = now.ToOffset(TimeSpan.FromHours(-5)).AddMinutes(-30); // Nov 5 there, Nov 6 here
+
+        Assert.StartsWith("Today, ", UpdateService.DescribeLastCheck(elsewhere, now));
+    }
 }

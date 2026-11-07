@@ -3,6 +3,7 @@ using System.Reflection;
 using Citrium.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Pickers;
 
 namespace Citrium.Views;
@@ -30,6 +31,9 @@ public sealed partial class SettingsPage : Page
         AboutCard.Description = $"Version {version} · A native Windows client for Citrix stores.";
         UpdateEngine();
         UpdateViewer();
+        ShowUpdateStatus();
+        _state.UpdateStatusChanged += OnUpdateStatusChanged;
+        Unloaded += (_, _) => _state.UpdateStatusChanged -= OnUpdateStatusChanged;
         _loading = false;
     }
 
@@ -85,11 +89,43 @@ public sealed partial class SettingsPage : Page
         _state.SaveSettings();
     }
 
-    private async void CheckNow_Click(object sender, RoutedEventArgs e)
+    private async void CheckNow_Click(object sender, RoutedEventArgs e) => await _state.CheckForUpdatesAsync();
+
+    private void ViewRelease_Click(object sender, RoutedEventArgs e) =>
+        Process.Start(new ProcessStartInfo(UpdateService.LatestReleasePage) { UseShellExecute = true })?.Dispose();
+
+    /// <summary>Only until Settings is next opened: this bar is the way to the release.</summary>
+    private void DismissUpdate_Click(object sender, RoutedEventArgs e) => UpdateAvailableBar.Visibility = Visibility.Collapsed;
+
+    private void OnUpdateStatusChanged(object? sender, EventArgs e) => ShowUpdateStatus();
+
+    private void ShowUpdateStatus()
     {
-        CheckNowButton.IsEnabled = false;
-        if (App.Current?.MainWindow is { } window) await window.CheckForUpdatesAsync(manual: true);
-        CheckNowButton.IsEnabled = true;
+        var update = _state.AvailableUpdate;
+        var lastChecked = _state.Settings.LastUpdateCheck is { } when
+            ? $"Last checked: {UpdateService.DescribeLastCheck(when, DateTimeOffset.Now)}"
+            : "Not checked yet";
+
+        var (title, detail, badge, glyph) =
+            _state.CheckingForUpdates ? ("Checking for updates", lastChecked, null, "")
+            : _state.UpdateCheckFailed ? ("Couldn't check for updates", "GitHub has no release to compare with, or can't be reached right now.", "UpdateBadgeCaution", "\uE8C9")
+            : update is not null ? ("An update is available", lastChecked, "UpdateBadgeInfo", "\uE74A")
+            : _state.Settings.LastUpdateCheck is not null ? ("You're up to date", lastChecked, "UpdateBadgeSuccess", "\uE73E")
+            : ($"Citrium {UpdateService.Current}", lastChecked, (string?)null, "");
+
+        UpdateTitle.Text = title;
+        UpdateDetail.Text = detail;
+        UpdateBadge.Visibility = badge is null ? Visibility.Collapsed : Visibility.Visible;
+        if (badge is not null)
+        {
+            UpdateBadgeFill.Fill = (Brush)Resources[badge];
+            UpdateBadgeIcon.Glyph = glyph;
+        }
+        UpdateRing.IsActive = _state.CheckingForUpdates;
+        UpdateRing.Visibility = _state.CheckingForUpdates ? Visibility.Visible : Visibility.Collapsed;
+
+        UpdateAvailableBar.Visibility = update is null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateAvailableText.Text = $"Citrium {update} is available.";
     }
 
     private void UpdateViewer()
