@@ -1,6 +1,6 @@
 # Citrium
 
-Citrium is a Windows app for Citrix desktops and apps. It replaces the Citrix Workspace interface, and Citrix still handles the connection, so sign-in, policies and HDX work as usual.
+Your Citrix desktops and apps, with picture in picture, live previews and a better full-screen toolbar. You sign in the same way as before.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/hero-light.png">
