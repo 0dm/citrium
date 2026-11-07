@@ -11,6 +11,8 @@ namespace Citrium.Services;
 
 public enum AccountStatus { NotSignedIn, SigningIn, Refreshing, Ready, Error }
 
+public enum UpdateProgress { None, Downloading, WaitingForSessions }
+
 [WinRT.GeneratedBindableCustomProperty]
 public sealed partial class AccountState : INotifyPropertyChanged
 {
@@ -90,6 +92,19 @@ public sealed class AppState
 
     public event EventHandler? UpdateStatusChanged;
 
+    /// <summary>What the last check found. Not saved, unlike the version: it's only good for this release.</summary>
+    internal ReleaseInfo? LatestRelease { get; private set; }
+
+    public UpdateProgress UpdateProgress
+    {
+        get;
+        set
+        {
+            field = value;
+            UpdateStatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>The latest version GitHub told us about, if it's newer than this one.</summary>
     public Version? AvailableUpdate =>
         Version.TryParse(Settings.LatestVersion, out var version) && UpdateService.IsNewer(version, UpdateService.Current) ? version : null;
@@ -109,6 +124,7 @@ public sealed class AppState
         {
             Settings.LastUpdateCheck = DateTimeOffset.Now;
             Settings.LatestVersion = check.Newer?.Version.ToString();
+            LatestRelease = check.Newer;
             SaveSettings();
         }
         UpdateStatusChanged?.Invoke(this, EventArgs.Empty);

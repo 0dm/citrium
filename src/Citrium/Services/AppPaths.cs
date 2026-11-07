@@ -20,6 +20,7 @@ internal static class AppPaths
     public static string IcaFiles => Ensure(Path.Combine(Root, "Ica"));
     public static string WebView2Data => Ensure(Path.Combine(Root, "WebView2"));
     public static string Viewers => Ensure(Path.Combine(Root, "Viewers"));
+    public static string Updates => Ensure(Path.Combine(Root, "Updates"));
     public static string LogFile => Path.Combine(Root, "citrium.log");
 
     private static string Ensure(string dir)
