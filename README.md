@@ -54,7 +54,7 @@ This toolbar is actually why I built Citrium. Citrix's kept vanishing, and it go
 
 ## Install
 
-Download `Citrium-<version>-x64.msi` (or `-ARM64.msi`) from [Releases](https://github.com/0dm/citrium/releases) and run it. It installs for your user only, so it doesn't need administrator rights. New versions upgrade in place. Windows may show a warning because the installer isn't code signed yet.
+Download `Citrium-<version>-x64.msi` (or `-ARM64.msi`) from [Releases](https://github.com/0dm/citrium/releases) and run it. It installs for your user only, so it doesn't need administrator rights. Citrium updates itself after that. Windows may show a warning because the installer isn't code signed yet.
 
 Then, in Citrium:
 
@@ -105,7 +105,7 @@ Then run `Citrium.exe` from `src/Citrium/bin/x64/Demo/net10.0-windows10.0.22621.
 
 ## Privacy
 
-Citrium talks to your Citrix stores. Unless you turn it off in Settings, it also asks GitHub once a day whether there's a newer version. It tells you when there is, and never installs anything itself.
+Citrium talks to your Citrix stores. Unless you turn it off in Settings, it also asks GitHub once a day whether there's a newer version. When there is, it downloads the installer from the release on GitHub, checks it against the SHA-256 digest GitHub lists, and installs it silently once no sessions are open. Citrium closes and reopens to do this. A copy unzipped from a release doesn't update itself.
 
 ## License
 

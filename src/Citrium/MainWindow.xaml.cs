@@ -201,6 +201,8 @@ public sealed partial class MainWindow : Window
             await _state.LaunchAsync(resource);
         }
 
+        UpdateService.DeleteDownload();
+        _state.Sessions.Sessions.CollectionChanged += (_, _) => DispatcherQueue.TryEnqueue(FinishUpdate);
         await CheckForUpdatesInBackgroundAsync();
     }
 
@@ -210,15 +212,59 @@ public sealed partial class MainWindow : Window
         if (!settings.CheckForUpdates) return;
         if (settings.LastUpdateCheck is { } last && DateTimeOffset.Now - last < UpdateCheckInterval) return;
 
-        if (await _state.CheckForUpdatesAsync() is { } release)
+        if (await _state.CheckForUpdatesAsync() is not { } release) return;
+        if (UpdateService.RunsFromInstall && release.Installer is not null) await InstallUpdateAsync();
+        else OfferRelease("A fresher Citrium is ready", $"Version {release.Version} is out. You have {UpdateService.Current}.", InfoBarSeverity.Informational);
+    }
+
+    private void OfferRelease(string title, string message, InfoBarSeverity severity) =>
+        Alert(title, message, severity, "View release",
+            () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(UpdateService.LatestReleasePage) { UseShellExecute = true })?.Dispose());
+
+    /// <summary>Downloads the update, then closes Citrium to install it and reopen, as soon as no session would go with it.</summary>
+    public async Task InstallUpdateAsync()
+    {
+        if (_state.UpdateProgress != UpdateProgress.None) return;
+
+        // A version found before a restart comes back from settings, without the release it belongs to.
+        var release = _state.LatestRelease ?? await _state.CheckForUpdatesAsync();
+        if (release?.Installer is not { } installer)
         {
-            Alert("A fresher Citrium is ready", $"Version {release.Version} is out. You have {UpdateService.Current}.",
-                InfoBarSeverity.Informational, "View release",
-                () => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(release.Url) { UseShellExecute = true })?.Dispose());
+            OfferRelease("Couldn't update Citrium", "Get the new version from its release page instead.", InfoBarSeverity.Warning);
+            return;
         }
+
+        _state.UpdateProgress = UpdateProgress.Downloading;
+        _updateInstaller = await UpdateService.DownloadAsync(installer);
+        if (_updateInstaller is null)
+        {
+            _state.UpdateProgress = UpdateProgress.None;
+            OfferRelease("Couldn't download the update", "Get the new version from its release page instead.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        _state.UpdateProgress = UpdateProgress.WaitingForSessions;
+        _state.Sessions.Poll();
+        FinishUpdate();
+    }
+
+    /// <summary>Quitting disconnects every session, so this waits until there are none.</summary>
+    private void FinishUpdate()
+    {
+        if (_updateInstaller is not { } installer || _state.Sessions.Sessions.Count > 0) return;
+        _updateInstaller = null;
+
+        if (UpdateService.StartInstall(installer, AppWindow.IsVisible ? null : StartupService.BackgroundArgument))
+        {
+            Quit();
+            return;
+        }
+        _state.UpdateProgress = UpdateProgress.None;
+        OfferRelease("Couldn't update Citrium", "Get the new version from its release page instead.", InfoBarSeverity.Warning);
     }
 
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromDays(1);
+    private string? _updateInstaller;
 
     private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args) => Nav.IsPaneOpen = !Nav.IsPaneOpen;
 

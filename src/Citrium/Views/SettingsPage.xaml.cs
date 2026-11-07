@@ -91,8 +91,13 @@ public sealed partial class SettingsPage : Page
 
     private async void CheckNow_Click(object sender, RoutedEventArgs e) => await _state.CheckForUpdatesAsync();
 
-    private void ViewRelease_Click(object sender, RoutedEventArgs e) =>
-        Process.Start(new ProcessStartInfo(UpdateService.LatestReleasePage) { UseShellExecute = true })?.Dispose();
+    private async void UpdateAction_Click(object sender, RoutedEventArgs e)
+    {
+        if (!UpdateService.RunsFromInstall)
+            Process.Start(new ProcessStartInfo(UpdateService.LatestReleasePage) { UseShellExecute = true })?.Dispose();
+        else if (App.Current?.MainWindow is { } window)
+            await window.InstallUpdateAsync();
+    }
 
     /// <summary>Only until Settings is next opened: this bar is the way to the release.</summary>
     private void DismissUpdate_Click(object sender, RoutedEventArgs e) => UpdateAvailableBar.Visibility = Visibility.Collapsed;
@@ -106,8 +111,13 @@ public sealed partial class SettingsPage : Page
             ? $"Last checked: {UpdateService.DescribeLastCheck(when, DateTimeOffset.Now)}"
             : "Not checked yet";
 
+        var progress = _state.UpdateProgress;
+        var busy = _state.CheckingForUpdates || progress == UpdateProgress.Downloading;
+
         var (title, detail, badge, glyph) =
-            _state.CheckingForUpdates ? ("Checking for updates", lastChecked, null, "")
+            progress == UpdateProgress.Downloading ? ($"Downloading Citrium {update}", lastChecked, null, "")
+            : progress == UpdateProgress.WaitingForSessions ? ("Update ready", $"Citrium {update} installs when your sessions end. Citrium reopens by itself.", "UpdateBadgeInfo", "\uE74A")
+            : _state.CheckingForUpdates ? ("Checking for updates", lastChecked, null, "")
             : _state.UpdateCheckFailed ? ("Couldn't check for updates", "GitHub has no release to compare with, or can't be reached right now.", "UpdateBadgeCaution", "\uE8C9")
             : update is not null ? ("An update is available", lastChecked, "UpdateBadgeInfo", "\uE74A")
             : _state.Settings.LastUpdateCheck is not null ? ("You're up to date", lastChecked, "UpdateBadgeSuccess", "\uE73E")
@@ -121,10 +131,11 @@ public sealed partial class SettingsPage : Page
             UpdateBadgeFill.Fill = (Brush)Resources[badge];
             UpdateBadgeIcon.Glyph = glyph;
         }
-        UpdateRing.IsActive = _state.CheckingForUpdates;
-        UpdateRing.Visibility = _state.CheckingForUpdates ? Visibility.Visible : Visibility.Collapsed;
+        UpdateRing.IsActive = busy;
+        UpdateRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
 
-        UpdateAvailableBar.Visibility = update is null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateAvailableBar.Visibility = update is null || progress != UpdateProgress.None ? Visibility.Collapsed : Visibility.Visible;
+        UpdateActionLink.Content = UpdateService.RunsFromInstall ? "Update now" : "View release";
         UpdateAvailableText.Text = $"Citrium {update} is available.";
     }
 

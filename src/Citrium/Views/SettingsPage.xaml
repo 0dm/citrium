@@ -86,13 +86,13 @@
                     <FontIcon Glyph="&#xF167;" FontSize="16" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <TextBlock x:Name="UpdateAvailableText" Grid.Column="1" Style="{StaticResource BodyStrongTextBlockStyle}"
                                VerticalAlignment="Center" TextWrapping="WrapWholeWords" />
-                    <HyperlinkButton Grid.Column="2" Content="View release" VerticalAlignment="Center" Click="ViewRelease_Click" />
+                    <HyperlinkButton x:Name="UpdateActionLink" Grid.Column="2" VerticalAlignment="Center" Click="UpdateAction_Click" />
                     <Button Grid.Column="3" Style="{StaticResource ViewerToolButtonStyle}" VerticalAlignment="Center"
                             ToolTipService.ToolTip="Dismiss" AutomationProperties.Name="Dismiss" Click="DismissUpdate_Click">
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
                 </Grid>
-                <tk:SettingsCard Header="Check for updates automatically">
+                <tk:SettingsCard Header="Install updates automatically">
                     <tk:SettingsCard.HeaderIcon><FontIcon Glyph="&#xE823;" /></tk:SettingsCard.HeaderIcon>
                     <ToggleSwitch x:Name="UpdatesToggle" Toggled="UpdatesToggle_Toggled" />
                 </tk:SettingsCard>
