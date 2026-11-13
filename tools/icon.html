@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- The Citrium icon: a citrus slice with a picture-in-picture window cut into its corner.
+     Open with ?size=N to draw it at N px; make-icon.ps1 screenshots it at each icon size.
+     Smaller sizes drop detail so the shapes stay legible. -->
+<html><head><meta charset="utf-8">
+<style>html, body { margin: 0; background: transparent; overflow: hidden; } svg { display: block; }</style>
+</head><body><script>
+const size = +(new URLSearchParams(location.search).get('size') || 256);
+const detail = size >= 48 ? 2 : size >= 24 ? 1 : 0;
+
+const f = n => n.toFixed(2);
+const P = (cx, cy, r, a) => [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+
+// Wedges of the slice, rounded later by a same-colour round-joined stroke. Pith shows in the gaps.
+function wedges(cx, cy, n, rOut, gap, start) {
+  let d = '';
+  const ga = gap / rOut, rTip = (gap + 1) / Math.sin(Math.PI / n);
+  for (let k = 0; k < n; k++) {
+    const a0 = start + 2 * Math.PI * k / n + ga, a1 = start + 2 * Math.PI * (k + 1) / n - ga, mid = (a0 + a1) / 2;
+    const t = P(cx, cy, rTip, mid), p0 = P(cx, cy, rOut, a0), p1 = P(cx, cy, rOut, a1);
+    d += `M${f(t[0])} ${f(t[1])}L${f(p0[0])} ${f(p0[1])}A${rOut} ${rOut} 0 0 1 ${f(p1[0])} ${f(p1[1])}Z`;
+  }
+  return d;
+}
+
+const c = 124, R = 106;
+const rind = detail === 0 ? 26 : 20, pith = R - rind;
+// The window, and the gap cut around it in the slice.
+const W = detail === 0 ? { x: 116, y: 120, w: 136, h: 108, r: 24, gap: 12, pad: 18, top: 34 }
+                       : { x: 126, y: 132, w: 120, h: 92, r: 18, gap: 9, pad: 11, top: 24 };
+const n = 6, start = 0.7 + Math.PI / n;
+const flesh = detail === 0
+  ? `<circle cx="${c}" cy="${c}" r="${pith - 8}" fill="url(#flesh)"/>`
+  : `<path d="${wedges(c, c, n, pith - 9, detail === 1 ? 9 : 6, start)}" fill="url(#flesh)" stroke="url(#flesh)" stroke-width="${detail === 1 ? 12 : 9}" stroke-linejoin="round"/>`;
+const dots = detail === 2 ? [0, 1, 2].map(k => `<circle cx="${W.x + 15 + k * 11}" cy="${W.y + 11.5}" r="3.4" fill="#fff" opacity=".9"/>`).join('') : '';
+const shadow = detail === 0 ? '' : 'filter="url(#shadow)"';
+
+document.body.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="rind" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFB13B"/><stop offset="1" stop-color="#F06A0F"/></linearGradient>
+    <radialGradient id="flesh" cx="0.42" cy="0.38" r="0.7"><stop offset="0" stop-color="#FFE08A"/><stop offset="1" stop-color="#FFA526"/></radialGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3A97E8"/><stop offset="1" stop-color="#0F5BB0"/></linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5FAFF"/><stop offset="1" stop-color="#D6E8FA"/></linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#3a1a00" flood-opacity="0.22"/></filter>
+    <mask id="cut"><rect width="256" height="256" fill="#fff"/>
+      <rect x="${W.x - W.gap}" y="${W.y - W.gap}" width="${W.w + 2 * W.gap}" height="${W.h + 2 * W.gap}" rx="${W.r + W.gap}" fill="#000"/></mask>
+  </defs>
+  <g ${shadow}>
+    <g mask="url(#cut)">
+      <circle cx="${c}" cy="${c}" r="${R}" fill="url(#rind)"/>
+      <circle cx="${c}" cy="${c}" r="${pith}" fill="#FFF4DC"/>
+      ${flesh}
+      ${detail === 2 ? `<ellipse cx="${c - 30}" cy="${c - 36}" rx="34" ry="22" fill="#fff" opacity=".18"/>` : ''}
+    </g>
+    <rect x="${W.x}" y="${W.y}" width="${W.w}" height="${W.h}" rx="${W.r}" fill="url(#frame)"/>
+    <rect x="${W.x + W.pad}" y="${W.y + W.top}" width="${W.w - 2 * W.pad}" height="${W.h - W.top - W.pad}" rx="${Math.max(3, W.r - 8)}" fill="url(#screen)"/>
+    ${dots}
+  </g>
+</svg>`;
+</script></body></html>
