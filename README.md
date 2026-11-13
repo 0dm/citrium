@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="96" alt="">
+
 # Citrium
 
 Your Citrix desktops and apps, with picture in picture, live previews and a better full-screen toolbar. You sign in the same way as before.
