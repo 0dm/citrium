@@ -8,7 +8,7 @@
     UpgradeCode must never change: it's how a new version finds the old one to replace.
   -->
   <Package Name="Citrium"
-           Manufacturer="Citrium"
+           Manufacturer="0dm"
            Version="$(var.Version)"
            UpgradeCode="6C1F2A54-8E3B-4D07-9A6E-2F4B7D10C3E5"
            Scope="perUser"

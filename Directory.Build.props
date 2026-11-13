@@ -3,6 +3,8 @@
   <!-- One version for the app and its installer. Release builds set it from the git tag. -->
   <PropertyGroup>
     <Version>1.0.2</Version>
+    <Company>0dm</Company>
+    <Authors>0dm</Authors>
   </PropertyGroup>
 
 </Project>
