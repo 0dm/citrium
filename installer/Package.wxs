@@ -17,6 +17,13 @@
 
     <MajorUpgrade AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of Citrium is already installed." />
+
+    <!--
+      Replace every file, whatever its version. Windows Installer otherwise keeps a file when the installed copy has a
+      higher version, and then removes it anyway with the old version: an update built with an older .NET patch than
+      the one installed lost the whole runtime that way, and Citrium wouldn't start.
+    -->
+    <Property Id="REINSTALLMODE" Value="amus" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Icon Id="Citrium.ico" SourceFile="..\src\Citrium\Assets\Citrium.ico" />

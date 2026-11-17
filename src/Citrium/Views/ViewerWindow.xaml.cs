@@ -527,6 +527,7 @@ public sealed partial class ViewerWindow : Window
         AppWindow.SetPresenter(on ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
         AppTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
         UseTitleBar(!on);
+        TaskbarFullScreen.Mark(WinRT.Interop.WindowNative.GetWindowHandle(this), on);
 
         if (on)
         {
@@ -744,6 +745,8 @@ public sealed partial class ViewerWindow : Window
         SetForegroundWindow(hwnd);
         if (_fullScreen)
         {
+            // The taskbar decided it was on top while this window was cloaked; marking again makes it check now.
+            TaskbarFullScreen.Mark(hwnd, true);
             _edgeTimer.Start();
             ShowToolbar(_toolbar is { IsPinned: true } ? null : TimeSpan.FromSeconds(2.5));
         }
