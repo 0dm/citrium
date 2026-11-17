@@ -3,6 +3,7 @@ using Citrium.Models;
 using Citrium.Services;
 using Citrium.Viewer;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 
@@ -59,10 +60,8 @@ public sealed partial class ViewerWindow : Window
         _options = options;
         InitializeComponent();
 
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
-        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
-        Title = string.IsNullOrEmpty(options.Account) ? options.Title : $"{options.Title} – {options.Account}";
+        UseTitleBar(true);
+        Title =string.IsNullOrEmpty(options.Account) ? options.Title : $"{options.Title} – {options.Account}";
         AppTitleBar.Title = Title;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Citrium.ico"));
         _placementKey = $"{options.Account}|{options.Title}";
@@ -527,6 +526,8 @@ public sealed partial class ViewerWindow : Window
         if (on && onRememberedScreen) MoveToRememberedScreen();
         AppWindow.SetPresenter(on ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped);
         AppTitleBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        UseTitleBar(!on);
+        TaskbarFullScreen.Mark(WinRT.Interop.WindowNative.GetWindowHandle(this), on);
 
         if (on)
         {
@@ -546,6 +547,26 @@ public sealed partial class ViewerWindow : Window
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, PositionSession);
         _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(PositionSession));
         _host?.Focus();
+    }
+
+    /// <summary>
+    /// The title bar is drawn by us, and Windows App SDK backs it with an invisible input window across the top of
+    /// the frame that answers as a caption. Hiding the title bar doesn't remove that window, and it sits above the
+    /// session surface, so in full screen a drag along the top of the screen moved the window out of full screen.
+    /// Full screen has no title bar, so it gives up the caption altogether.
+    /// </summary>
+    private void UseTitleBar(bool on)
+    {
+        ExtendsContentIntoTitleBar = on;
+        if (on)
+        {
+            SetTitleBar(AppTitleBar);
+            AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        }
+        else
+        {
+            InputNonClientPointerSource.GetForWindowId(AppWindow.Id).ClearRegionRects(NonClientRegionKind.Caption);
+        }
     }
 
     /// <summary>Only for a desktop opening by itself: pressing Full screen means this screen, wherever it was last time.</summary>
@@ -724,6 +745,8 @@ public sealed partial class ViewerWindow : Window
         SetForegroundWindow(hwnd);
         if (_fullScreen)
         {
+            // The taskbar decided it was on top while this window was cloaked; marking again makes it check now.
+            TaskbarFullScreen.Mark(hwnd, true);
             _edgeTimer.Start();
             ShowToolbar(_toolbar is { IsPinned: true } ? null : TimeSpan.FromSeconds(2.5));
         }

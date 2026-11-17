@@ -2,9 +2,9 @@
 
   <!-- One version for the app and its installer. Release builds set it from the git tag. -->
   <PropertyGroup>
-    <Version>1.0.2</Version>
-    <Company>0dm</Company>
-    <Authors>0dm</Authors>
+    <Version>1.0.4</Version>
+    <Company>Aaron Shah</Company>
+    <Authors>Aaron Shah</Authors>
   </PropertyGroup>
 
 </Project>
